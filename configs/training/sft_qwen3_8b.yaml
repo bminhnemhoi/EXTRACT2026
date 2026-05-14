@@ -2,7 +2,8 @@
 # This config is consumed by `python -m exact_agent.train.run_sft_qwen`.
 
 base_model: "Qwen/Qwen3-8B"
-dataset_path: "data/cleaned/sft_train_mixed_solver_clean.jsonl"
+# Run `python -m exact_agent.train.prepare_sft` first to materialize this file.
+dataset_path: "data/processed/sft_chat_train.jsonl"
 val_split: 0.1
 seed: 42
 

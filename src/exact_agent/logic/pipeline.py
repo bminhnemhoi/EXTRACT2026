@@ -12,6 +12,7 @@ import re
 
 from exact_agent.agent.output_formatter import format_response
 from exact_agent.config import get_settings
+from exact_agent.llm.vllm_client import LLMClient
 from exact_agent.logic.answer_verifier import (
     VerifierResult,
     verify_multiple_choice,
@@ -19,6 +20,10 @@ from exact_agent.logic.answer_verifier import (
 )
 from exact_agent.logic.explanation import render_explanation
 from exact_agent.logic.forward_chainer import forward_chain
+from exact_agent.logic.llm_translator import (
+    LLMTranslationError,
+    translate_question_to_fol,
+)
 from exact_agent.logic.premise_selector import select_top_k
 from exact_agent.logic.rule_parser import parse_premises
 from exact_agent.logic.z3_verifier import verify_with_z3
@@ -54,19 +59,32 @@ def _extract_choices(question: str) -> dict[str, str] | None:
 def _try_z3_fallback(
     payload: PredictRequest,
     surface: VerifierResult,
+    llm: LLMClient | None,
+    trace_sink: list[str],
 ) -> VerifierResult | None:
     """Try the Z3 backend when the surface verifier abstained or low-confidence.
 
-    Returns ``None`` if there's no signal to override (no FOL premises, or
-    surface already confidently decided), otherwise a fresh
-    ``VerifierResult`` to use instead of the surface one.
+    The LLM (if configured) is asked to translate the question into a FOL
+    claim when one wasn't supplied; otherwise we just need ``premises-FOL``
+    plus a caller-provided ``claim-FOL``. Returns ``None`` if neither
+    pre-condition holds or Z3 didn't decide.
     """
     fol_premises = payload.premises_FOL
-    claim_fol = payload.claim_FOL
-    if not fol_premises or not claim_fol:
+    if not fol_premises:
         return None
     # Don't replace a confident surface answer.
     if surface.answer in {"Yes", "No"} and surface.confidence >= 0.7:
+        return None
+
+    claim_fol = payload.claim_FOL
+    if not claim_fol and llm is not None:
+        try:
+            claim_fol = translate_question_to_fol(payload.question, list(fol_premises), llm)
+            trace_sink.append(f"LLM translated claim → {claim_fol}")
+        except LLMTranslationError as exc:
+            trace_sink.append(f"LLM translation failed: {exc}")
+            return None
+    if not claim_fol:
         return None
 
     z3_result = verify_with_z3(fol_premises, claim_fol)
@@ -83,10 +101,15 @@ def _try_z3_fallback(
 class LogicPipeline:
     """Orchestrates: premise_selector → rule_parser → forward_chainer → answer_verifier."""
 
-    def __init__(self, top_k: int | None = None) -> None:
+    def __init__(
+        self,
+        top_k: int | None = None,
+        llm_client: LLMClient | None = None,
+    ) -> None:
         cfg = get_settings().pipelines.logic
         self._top_k = top_k if top_k is not None else cfg.top_k_premises
         self._z3_enabled = cfg.use_z3_fallback
+        self._llm = llm_client
 
     def run(self, payload: PredictRequest) -> PredictResponse:
         question = payload.question
@@ -105,8 +128,9 @@ class LogicPipeline:
             verifier = verify_yes_no(question, chain)
 
         z3_replacement: VerifierResult | None = None
+        z3_trace: list[str] = []
         if self._z3_enabled:
-            z3_replacement = _try_z3_fallback(payload, verifier)
+            z3_replacement = _try_z3_fallback(payload, verifier, self._llm, z3_trace)
             if z3_replacement is not None:
                 verifier = z3_replacement
 
@@ -125,6 +149,7 @@ class LogicPipeline:
             f"Forward chain iterations: {chain.iterations}, derived facts: {len(chain.facts)}",
             verifier.rationale,
         ]
+        cot.extend(z3_trace)
         if z3_replacement is not None:
             cot.append("Z3 entailment fallback applied (surface chain returned Unknown).")
 

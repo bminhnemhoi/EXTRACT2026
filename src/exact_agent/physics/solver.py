@@ -27,11 +27,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from exact_agent.llm.vllm_client import LLMClient
 from exact_agent.physics.formula_library import (
     Formula,
     FormulaLibrary,
     default_library,
 )
+from exact_agent.physics.llm_extractor import LLMExtractionError, extract_with_llm
 from exact_agent.physics.quantity_extractor import (
     ExtractedQuantity,
     extract_quantities,
@@ -74,10 +76,21 @@ class SolverResult:
 
 
 class PhysicsSolver:
-    """Orchestrate classifier → extractor → unit conversion → SymPy compute."""
+    """Orchestrate classifier → extractor → unit conversion → SymPy compute.
 
-    def __init__(self, library: FormulaLibrary | None = None) -> None:
+    When the regex extractor returns a missing-input failure and an
+    ``llm_client`` is configured, a single LLM extraction attempt is made
+    against the chosen formula's schema. The LLM never computes the final
+    answer; SymPy still does.
+    """
+
+    def __init__(
+        self,
+        library: FormulaLibrary | None = None,
+        llm_client: LLMClient | None = None,
+    ) -> None:
         self._library = library or default_library()
+        self._llm = llm_client
 
     def solve(self, question: str) -> SolverResult:
         trace: list[str] = []
@@ -124,16 +137,32 @@ class PhysicsSolver:
                 fail_reason=f"unit_conversion_failed: {exc}",
             )
         except KeyError as exc:
-            return SolverResult(
-                success=False,
-                answer_value=None,
-                answer_unit=formula.output_unit,
-                formula_id=formula.id,
-                formula_description=formula.description,
-                trace=trace,
-                extracted=extracted,
-                fail_reason=f"missing_input: {exc}",
-            )
+            llm_recovery = self._try_llm_extraction(question, formula, trace)
+            if llm_recovery is None:
+                return SolverResult(
+                    success=False,
+                    answer_value=None,
+                    answer_unit=formula.output_unit,
+                    formula_id=formula.id,
+                    formula_description=formula.description,
+                    trace=trace,
+                    extracted=extracted,
+                    fail_reason=f"missing_input: {exc}",
+                )
+            extracted = llm_recovery
+            try:
+                values_si = self._convert_inputs(formula, extracted, trace)
+            except (UnitConversionError, KeyError) as exc2:
+                return SolverResult(
+                    success=False,
+                    answer_value=None,
+                    answer_unit=formula.output_unit,
+                    formula_id=formula.id,
+                    formula_description=formula.description,
+                    trace=trace,
+                    extracted=extracted,
+                    fail_reason=f"llm_recovery_failed: {exc2}",
+                )
 
         try:
             numeric = formula.compute(values_si)
@@ -182,6 +211,29 @@ class PhysicsSolver:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _try_llm_extraction(
+        self,
+        question: str,
+        formula: Formula,
+        trace: list[str],
+    ) -> list[ExtractedQuantity] | None:
+        """Use the LLM to recover inputs the regex extractor missed.
+
+        Returns ``None`` when the LLM is not configured or its output didn't
+        cover every required input. The trace is updated either way so the
+        explanation can quote the recovery attempt.
+        """
+        if self._llm is None:
+            return None
+        try:
+            recovered = extract_with_llm(question, formula, self._llm)
+        except LLMExtractionError as exc:
+            trace.append(f"LLM extractor failed: {exc}")
+            return None
+        names = ", ".join(f"{q.name}={q.value} {q.unit}" for q in recovered)
+        trace.append(f"LLM extractor recovered: {names}")
+        return recovered
 
     @staticmethod
     def _resolve_alias(
