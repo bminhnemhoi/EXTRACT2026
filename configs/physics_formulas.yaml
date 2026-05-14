@@ -26,6 +26,39 @@ formulas:
       unit: "farad"
     expression: "Q / U"
 
+  charge_from_capacitance:
+    topic: TD
+    description: "Charge on a capacitor: Q = C·U"
+    inputs:
+      C: { unit: "farad", aliases: ["capacitance"] }
+      U: { unit: "volt",  aliases: ["voltage", "V"] }
+    output:
+      symbol: Q
+      unit: "coulomb"
+    expression: "C * U"
+
+  voltage_from_energy_capacitance:
+    topic: NL
+    description: "Voltage of a capacitor from energy and capacitance: U = sqrt(2W/C)"
+    inputs:
+      W: { unit: "joule", aliases: ["energy", "E"] }
+      C: { unit: "farad", aliases: ["capacitance"] }
+    output:
+      symbol: U
+      unit: "volt"
+    expression: "sqrt(2 * W / C)"
+
+  capacitance_from_energy_voltage:
+    topic: NL
+    description: "Capacitance from stored energy and voltage: C = 2W/U^2"
+    inputs:
+      W: { unit: "joule", aliases: ["energy", "E"] }
+      U: { unit: "volt",  aliases: ["voltage", "V"] }
+    output:
+      symbol: C
+      unit: "farad"
+    expression: "2 * W / U**2"
+
   coulomb_force:
     topic: LD
     description: "Coulomb force between two point charges: F = k·|q1·q2|/r²"

@@ -98,7 +98,17 @@ def convert(value: float, source_unit: str, target_unit: str) -> ConversionResul
     try:
         quantity = value * ureg.parse_expression(src)
         converted = quantity.to(ureg.parse_expression(tgt))
-    except (pint.errors.UndefinedUnitError, pint.errors.DimensionalityError) as exc:
+    except (
+        pint.errors.UndefinedUnitError,
+        pint.errors.DimensionalityError,
+        AssertionError,
+        AttributeError,
+        ValueError,
+        TypeError,
+    ) as exc:
+        # pint's parser can raise a surprising variety of exceptions on
+        # malformed input; we treat them all as conversion failures so the
+        # caller can fall back without crashing the eval harness.
         raise UnitConversionError(
             f"cannot convert {value} {source_unit!r} -> {target_unit!r}: {exc}"
         ) from exc

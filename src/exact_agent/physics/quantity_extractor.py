@@ -39,14 +39,21 @@ _SUPERSCRIPT_MAP = str.maketrans(
 )
 
 
+_ASCII_TIMES_RE = re.compile(r"(\d)\s*x\s*10\s*\^")
+
+
 def _denormalize_exponents(text: str) -> str:
-    """Replace Unicode superscript exponents and times glyphs with ASCII."""
-    return (
-        text.translate(_SUPERSCRIPT_MAP)
-        .replace("×", "*")
-        .replace("·", "*")
-        .replace("−", "-")  # MINUS SIGN U+2212 → HYPHEN-MINUS
-    )
+    """Replace Unicode superscript exponents and times glyphs with ASCII.
+
+    Also rewrites the dataset's ASCII ``12 x 10^-6`` notation into ``12*10^-6``
+    so the main regex can recognize it as a scientific magnitude. We only
+    rewrite the ``digit x 10^`` form so we don't munge variable names like
+    ``x`` or ``Bx``.
+    """
+    text = text.translate(_SUPERSCRIPT_MAP)
+    text = text.replace("×", "*").replace("·", "*").replace("−", "-")
+    text = _ASCII_TIMES_RE.sub(r"\1*10^", text)
+    return text
 
 
 # Magnitude regex — matches plain decimals, scientific, and the

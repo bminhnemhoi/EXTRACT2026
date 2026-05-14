@@ -94,11 +94,15 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["PLR2004", "S101"]
 "scripts/**" = ["T201"]  # allow print
-# Physics modules deliberately handle Unicode glyphs (×, −, μ, Ω, ⁻²).
+# Physics/eval modules deliberately handle Unicode glyphs (×, −, μ, Ω, ⁻²).
 # Treating them as ambiguous defeats the purpose.
 "src/exact_agent/physics/*.py" = ["RUF001", "RUF002", "RUF003"]
+"src/exact_agent/eval/*.py" = ["RUF001", "RUF002", "RUF003", "PLR0911"]
+"scripts/run_eval.py" = ["RUF001", "RUF002", "RUF003"]
 "tests/unit/test_quantity_extractor.py" = ["RUF001", "RUF002", "RUF003"]
 "tests/unit/test_unit_converter.py" = ["RUF001", "RUF002", "RUF003"]
+"tests/unit/test_metrics.py" = ["RUF001", "RUF002", "RUF003"]
+"tests/unit/test_question_cleaner.py" = ["RUF001", "RUF002", "RUF003"]
 
 [tool.mypy]
 python_version = "3.11"

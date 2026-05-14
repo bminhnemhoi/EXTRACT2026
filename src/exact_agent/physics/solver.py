@@ -37,11 +37,13 @@ from exact_agent.physics.quantity_extractor import (
     extract_quantities,
     find_by_name,
 )
+from exact_agent.physics.question_cleaner import clean as clean_question
 from exact_agent.physics.topic_classifier import classify
 from exact_agent.physics.unit_converter import (
     UnitConversionError,
     convert,
 )
+from exact_agent.physics.verifier import verify as verify_result
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,7 @@ class SolverResult:
     extracted: list[ExtractedQuantity] = field(default_factory=list)
     fail_reason: str | None = None
     confidence: float = 0.0
+    verifier_warnings: tuple[str, ...] = ()
 
     @property
     def answer_str(self) -> str:
@@ -78,6 +81,7 @@ class PhysicsSolver:
 
     def solve(self, question: str) -> SolverResult:
         trace: list[str] = []
+        question = clean_question(question)
         extracted = extract_quantities(question)
         if extracted:
             quantities_text = ", ".join(
@@ -147,7 +151,7 @@ class PhysicsSolver:
 
         trace.append(self._format_substitution(formula, values_si, numeric))
 
-        return SolverResult(
+        provisional = SolverResult(
             success=True,
             answer_value=numeric,
             answer_unit=formula.output_unit,
@@ -156,6 +160,23 @@ class PhysicsSolver:
             trace=trace,
             extracted=extracted,
             confidence=min(0.95, 0.6 + 0.35 * classification.confidence),
+        )
+
+        verification = verify_result(provisional.answer_value, provisional.answer_unit)
+        if verification.warnings:
+            trace.extend(f"Verifier: {w}" for w in verification.warnings)
+        return SolverResult(
+            success=provisional.success,
+            answer_value=provisional.answer_value,
+            answer_unit=provisional.answer_unit,
+            formula_id=provisional.formula_id,
+            formula_description=provisional.formula_description,
+            trace=trace,
+            extracted=provisional.extracted,
+            confidence=(
+                provisional.confidence if verification.ok else min(0.4, provisional.confidence)
+            ),
+            verifier_warnings=verification.warnings,
         )
 
     # ------------------------------------------------------------------
