@@ -30,8 +30,12 @@ physics = [
 logic = [
     "z3-solver>=4.13",
     "lark>=1.2",
-    "nltk>=3.9",
+]
+# Heavy embedding backend (PyTorch + sentence-transformers). Optional — the
+# Day-4 baseline uses sklearn TF-IDF and only needs `logic`.
+embed = [
     "sentence-transformers>=3.3",
+    "nltk>=3.9",
 ]
 llm = [
     "transformers>=4.46",

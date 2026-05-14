@@ -4,14 +4,26 @@
 # slot-filled NL fragments that downstream forward_chainer can normalize.
 
 rule_patterns:
-  - id: if_then_simple
-    regex: "^If (?P<cond>.+), then (?P<concl>.+)\\.?$"
-    arity: 1
-
+  # Conditional with explicit ``then`` — covers ~30% of dataset premises.
   - id: if_and_then
     regex: "^If (?P<a>.+?) and (?P<b>.+?), then (?P<concl>.+)\\.?$"
     arity: 2
 
+  - id: if_then_simple
+    regex: "^If (?P<cond>.+), then (?P<concl>.+)\\.?$"
+    arity: 1
+
+  # Conditional without ``then`` — far more common in the dataset.
+  # The conclusion often opens with a pronoun ("it", "they", "the X", ...).
+  - id: if_and_implicit
+    regex: "^If (?P<a>.+?) and (?P<b>.+?), (?P<concl>(?:it |they |the |this |these |those )?.+)\\.?$"
+    arity: 2
+
+  - id: if_implicit
+    regex: "^If (?P<cond>.+?), (?P<concl>(?:it |they |the |this |these |those )?.+)\\.?$"
+    arity: 1
+
+  # Universals & grounded facts.
   - id: all_x_are_y
     regex: "^All (?P<subj>[A-Za-z][\\w\\s]+?) are (?P<pred>.+)\\.?$"
     arity: 0

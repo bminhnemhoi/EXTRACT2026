@@ -26,13 +26,18 @@ for stream in (sys.stdout, sys.stderr):
     if hasattr(stream, "reconfigure"):
         stream.reconfigure(encoding="utf-8", errors="replace")
 
-from exact_agent.eval.eval_physics import run_eval  # noqa: E402
+from exact_agent.eval.eval_logic import run_eval as run_logic_eval  # noqa: E402
+from exact_agent.eval.eval_physics import run_eval as run_physics_eval  # noqa: E402
 from exact_agent.eval.reports import render_markdown, write_outputs  # noqa: E402
 
 DEFAULT_OUT = REPO_ROOT / "outputs" / "eval"
 EVAL_SPLITS = {
     "physics": REPO_ROOT / "data" / "eval_split" / "physics_eval.jsonl",
     "logic": REPO_ROOT / "data" / "eval_split" / "logic_eval.jsonl",
+}
+RUNNERS = {
+    "physics": run_physics_eval,
+    "logic": run_logic_eval,
 }
 
 
@@ -59,13 +64,8 @@ def main() -> int:
         print("  -> run: uv run python scripts/build_eval_split.py", file=sys.stderr)
         return 1
 
-    if args.task != "physics":
-        # Logic eval lands in Day 4. Fail loudly rather than guess.
-        print("[stub] logic eval harness not yet implemented (Day 4 work).")
-        return 2
-
     print(f"[info] evaluating {args.task} on {split_path.name} ...")
-    report = run_eval(split_path)
+    report = RUNNERS[args.task](split_path)
     md_path, json_path = write_outputs(
         report, args.out, stem=args.task, include_samples=args.include_samples
     )
