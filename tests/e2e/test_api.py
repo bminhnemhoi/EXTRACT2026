@@ -42,6 +42,23 @@ def test_predict_physics_routes_and_returns_schema(
     assert "explanation" in body
 
 
+def test_predict_physics_capacitor_energy_returns_correct_value(client: TestClient) -> None:
+    """The Day-2 solver should compute E = 0.045 J for the textbook problem."""
+    payload = {
+        "question": "Calculate the energy stored in capacitor C when C = 100 μF and U = 30 V."
+    }
+    response = client.post("/predict", json=payload)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["task_type"] == "physics"
+    # Answer is rendered as "0.045 joule".
+    assert "0.045" in body["answer"]
+    assert "joule" in body["answer"].lower()
+    assert body["confidence"] >= 0.8
+    # Reasoning trace should reference the formula and conversion.
+    assert any("0.5" in step for step in body["cot"])
+
+
 def test_predict_missing_question_rejected(client: TestClient) -> None:
     response = client.post("/predict", json={"premises-NL": ["foo"]})
     assert response.status_code == 422

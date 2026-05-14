@@ -37,7 +37,18 @@ CASES: list[SmokeCase] = [
     ),
     SmokeCase(
         name="physics_ohm",
-        payload={"question": "A 5 ohm resistor carries 2 A of current. What is the voltage?"},
+        payload={
+            "question": (
+                "Apply Ohm's law: with R = 5 ohm and I = 2 A, what is the voltage V?"
+            )
+        },
+        expected_task="physics",
+    ),
+    SmokeCase(
+        name="physics_parallel_resistance",
+        payload={
+            "question": "Two resistors R1 = 4 ohm and R2 = 6 ohm are connected in parallel."
+        },
         expected_task="physics",
     ),
     SmokeCase(
