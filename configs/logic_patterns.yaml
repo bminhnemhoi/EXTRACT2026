@@ -1,0 +1,45 @@
+# Surface-level patterns used by logic.rule_parser as a fast, deterministic
+# baseline before falling back to the FOL parser / LLM translation.
+# Each pattern produces (conditions, conclusion) — both expressed as
+# slot-filled NL fragments that downstream forward_chainer can normalize.
+
+rule_patterns:
+  - id: if_then_simple
+    regex: "^If (?P<cond>.+), then (?P<concl>.+)\\.?$"
+    arity: 1
+
+  - id: if_and_then
+    regex: "^If (?P<a>.+?) and (?P<b>.+?), then (?P<concl>.+)\\.?$"
+    arity: 2
+
+  - id: all_x_are_y
+    regex: "^All (?P<subj>[A-Za-z][\\w\\s]+?) are (?P<pred>.+)\\.?$"
+    arity: 0
+
+  - id: students_who_x_are_y
+    regex: "^Students who (?P<cond>.+?) (?:are|qualify for) (?P<concl>.+)\\.?$"
+    arity: 1
+
+  - id: x_have_completed_y
+    regex: "^(?P<subj>[A-Z][\\w']+) (?:has|have) (?P<pred>completed|passed|received) (?P<obj>.+)\\.?$"
+    arity: 0
+
+question_patterns:
+  - id: based_on_premises_what
+    regex: "^Based on (?:the )?(?:above )?premises,? (?:what|which|does) "
+    intent: open_or_mc
+
+  - id: yes_no_does_it_follow
+    regex: "^Does it follow that"
+    intent: yes_no_unknown
+
+  - id: yes_no_can
+    regex: "^Can "
+    intent: yes_no_unknown
+
+  - id: true_false
+    regex: "(true or false|is it true that)"
+    intent: true_false
+
+# Multiple-choice option splitter (used by answer_verifier).
+mc_option_regex: "(?:^|\\n)([A-D])\\.\\s+(.+)"

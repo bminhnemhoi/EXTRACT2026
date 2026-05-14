@@ -1,0 +1,116 @@
+[project]
+name = "exact-agent"
+version = "0.1.0"
+description = "EXACT 2026 — explainable QA agent for educational queries (logic + physics)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Veriscope Team" }]
+
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "pyyaml>=6.0",
+    "jinja2>=3.1",
+    "loguru>=0.7",
+    "tenacity>=9.0",
+    "httpx>=0.28",
+    "typer>=0.13",
+]
+
+[project.optional-dependencies]
+physics = [
+    "pint>=0.24",
+    "sympy>=1.13",
+    "numpy>=1.26",
+    "scikit-learn>=1.5",
+]
+logic = [
+    "z3-solver>=4.13",
+    "lark>=1.2",
+    "nltk>=3.9",
+    "sentence-transformers>=3.3",
+]
+llm = [
+    "transformers>=4.46",
+    "accelerate>=1.1",
+    "peft>=0.13",
+    "bitsandbytes>=0.44; sys_platform != 'darwin'",
+]
+train = [
+    "exact-agent[llm]",
+    "trl>=0.12",
+    "datasets>=3.1",
+    "wandb>=0.18",
+]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "pre-commit>=4.0",
+    "types-PyYAML",
+]
+
+[project.scripts]
+exact-api = "exact_agent.api.app:run"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/exact_agent"]
+
+# ----------------------------------------------------------------------------
+# Tooling
+# ----------------------------------------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "RUF",  # ruff-specific
+    "SIM",  # flake8-simplify
+    "PL",   # pylint subset
+]
+ignore = [
+    "PLR0913",  # too many arguments
+    "PLR2004",  # magic value
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLR2004", "S101"]
+"scripts/**" = ["T201"]  # allow print
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+warn_unused_ignores = true
+warn_return_any = true
+check_untyped_defs = true
+ignore_missing_imports = true
+files = ["src/exact_agent"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-ra --strict-markers"
+markers = [
+    "slow: marks tests as slow",
+    "gpu: requires GPU",
+    "integration: integration tests",
+    "e2e: end-to-end tests against running API",
+]

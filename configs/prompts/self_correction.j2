@@ -1,0 +1,27 @@
+{# Feedback prompt for the self-correction loop. The solver/verifier has
+   detected a specific defect in the model's draft. We replay the question
+   with a concrete corrective instruction and ask for a revised JSON. #}
+The previous draft has a verifiable defect. Revise it and return the
+corrected output as JSON only.
+
+Question: {{ question }}
+{% if premises_nl %}
+Premises:
+{% for p in premises_nl %}{{ loop.index }}. {{ p }}
+{% endfor %}{% endif %}
+
+Your previous draft:
+{{ draft_json }}
+
+Verifier feedback:
+{{ feedback }}
+
+Respond with a single JSON object matching the schema:
+{
+  "answer": "...",
+  "explanation": "...",
+  "cot": ["..."],
+  "premises": ["..."],
+  "confidence": <0.0-1.0>
+}
+JSON:

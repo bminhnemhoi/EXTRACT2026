@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+wheels/
+pip-wheel-metadata/
+.python-version
+
+# Virtual envs
+.venv/
+venv/
+env/
+.env
+!.env.example
+
+# uv / poetry
+uv.lock
+poetry.lock
+.uv/
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+.ruff_cache/
+
+# IDE
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data & models (big files)
+data/raw/
+data/processed/*.jsonl
+models/
+checkpoints/
+*.safetensors
+*.bin
+*.pt
+*.gguf
+wandb/
+outputs/
+runs/
+
+# Notebook
+.ipynb_checkpoints/
+
+# Logs
+*.log
+logs/

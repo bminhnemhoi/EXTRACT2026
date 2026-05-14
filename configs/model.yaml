@@ -1,0 +1,19 @@
+# LLM backbone configuration.
+# Inference is delegated to a vLLM server (OpenAI-compatible API). For Day 1
+# the LLM is not yet invoked — these fields are placeholders.
+
+llm:
+  backbone: "Qwen/Qwen3-8B"
+  vllm_base_url: "http://localhost:8001/v1"
+  api_key: "local-no-auth"
+  max_tokens: 1024
+  temperature: 0.2
+  top_p: 0.9
+  timeout_s: 20
+  enable_lora: false
+  lora_adapter_path: ""    # filled after Phase 4 SFT
+
+embedding:
+  model: "sentence-transformers/all-MiniLM-L6-v2"
+  device: "cpu"
+  batch_size: 32

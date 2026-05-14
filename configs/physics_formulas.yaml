@@ -1,0 +1,150 @@
+# Formula registry for the physics solver.
+# Each entry is consumed by exact_agent.physics.formula_library.FormulaLibrary.
+# `inputs` and `output` declare the symbols & SI base units the solver will
+# canonicalize to via pint before substitution. `expression` is parsed by SymPy.
+
+formulas:
+  capacitor_energy:
+    topic: TD
+    description: "Energy stored in a capacitor: E = 0.5·C·U²"
+    inputs:
+      C: { unit: "farad", aliases: ["capacitance"] }
+      U: { unit: "volt",  aliases: ["voltage", "V"] }
+    output:
+      symbol: E
+      unit: "joule"
+    expression: "0.5 * C * U**2"
+
+  capacitance_from_charge:
+    topic: TD
+    description: "Capacitance from charge and voltage: C = Q/U"
+    inputs:
+      Q: { unit: "coulomb", aliases: ["charge"] }
+      U: { unit: "volt",    aliases: ["voltage", "V"] }
+    output:
+      symbol: C
+      unit: "farad"
+    expression: "Q / U"
+
+  coulomb_force:
+    topic: LD
+    description: "Coulomb force between two point charges: F = k·|q1·q2|/r²"
+    inputs:
+      q1: { unit: "coulomb" }
+      q2: { unit: "coulomb" }
+      r:  { unit: "meter",   aliases: ["distance", "d"] }
+    output:
+      symbol: F
+      unit: "newton"
+    expression: "8.9875517923e9 * Abs(q1*q2) / r**2"
+
+  electric_field_point_charge:
+    topic: DT
+    description: "Electric field of a point charge: E = k·q/r²"
+    inputs:
+      q: { unit: "coulomb" }
+      r: { unit: "meter",   aliases: ["distance"] }
+    output:
+      symbol: E
+      unit: "volt/meter"
+    expression: "8.9875517923e9 * q / r**2"
+
+  ohm_law_voltage:
+    topic: CH
+    description: "Ohm's law: V = I·R"
+    inputs:
+      I: { unit: "ampere",  aliases: ["current"] }
+      R: { unit: "ohm",     aliases: ["resistance"] }
+    output:
+      symbol: V
+      unit: "volt"
+    expression: "I * R"
+
+  power_voltage_current:
+    topic: NL
+    description: "Electric power: P = U·I"
+    inputs:
+      U: { unit: "volt",   aliases: ["voltage", "V"] }
+      I: { unit: "ampere", aliases: ["current"] }
+    output:
+      symbol: P
+      unit: "watt"
+    expression: "U * I"
+
+  power_i2r:
+    topic: NL
+    description: "Joule heating: P = I²·R"
+    inputs:
+      I: { unit: "ampere",  aliases: ["current"] }
+      R: { unit: "ohm",     aliases: ["resistance"] }
+    output:
+      symbol: P
+      unit: "watt"
+    expression: "I**2 * R"
+
+  series_resistance_two:
+    topic: CH
+    description: "Two resistors in series: R = R1 + R2"
+    inputs:
+      R1: { unit: "ohm" }
+      R2: { unit: "ohm" }
+    output:
+      symbol: R
+      unit: "ohm"
+    expression: "R1 + R2"
+
+  parallel_resistance_two:
+    topic: CH
+    description: "Two resistors in parallel: 1/R = 1/R1 + 1/R2"
+    inputs:
+      R1: { unit: "ohm" }
+      R2: { unit: "ohm" }
+    output:
+      symbol: R
+      unit: "ohm"
+    expression: "(R1 * R2) / (R1 + R2)"
+
+  rlc_impedance:
+    topic: CHLT
+    description: "Series RLC impedance: Z = sqrt(R² + (X_L − X_C)²)"
+    inputs:
+      R:   { unit: "ohm" }
+      X_L: { unit: "ohm",   aliases: ["XL"] }
+      X_C: { unit: "ohm",   aliases: ["XC"] }
+    output:
+      symbol: Z
+      unit: "ohm"
+    expression: "sqrt(R**2 + (X_L - X_C)**2)"
+
+  resonance_frequency:
+    topic: CHLT
+    description: "Resonance frequency of LC circuit: f0 = 1 / (2π·sqrt(LC))"
+    inputs:
+      L: { unit: "henry" }
+      C: { unit: "farad" }
+    output:
+      symbol: f
+      unit: "hertz"
+    expression: "1 / (2 * pi * sqrt(L * C))"
+
+  magnetic_field_solenoid:
+    topic: DDT
+    description: "Magnetic field inside a long solenoid: B = μ0·n·I"
+    inputs:
+      n: { unit: "1/meter", aliases: ["turns_per_meter"] }
+      I: { unit: "ampere",  aliases: ["current"] }
+    output:
+      symbol: B
+      unit: "tesla"
+    expression: "1.25663706212e-6 * n * I"
+
+  magnetic_field_long_wire:
+    topic: DDT
+    description: "Magnetic field around a long straight wire: B = μ0·I / (2π·r)"
+    inputs:
+      I: { unit: "ampere", aliases: ["current"] }
+      r: { unit: "meter",  aliases: ["distance"] }
+    output:
+      symbol: B
+      unit: "tesla"
+    expression: "1.25663706212e-6 * I / (2 * pi * r)"

@@ -1,0 +1,33 @@
+# FastAPI application configuration.
+# Loaded by exact_agent.config.Settings (pydantic-settings). Env vars override.
+
+api:
+  host: 0.0.0.0
+  port: 8000
+  request_timeout_s: 30
+  cors_origins:
+    - "*"
+
+logging:
+  level: INFO
+  json: true
+  include_request_id: true
+
+router:
+  # Heuristic: presence of `premises-NL` (or `premises_NL`) routes to logic.
+  premises_keys: ["premises-NL", "premises_NL", "premises"]
+
+pipelines:
+  logic:
+    use_z3_fallback: true
+    z3_timeout_ms: 8000
+    forward_chain_max_iters: 50
+    top_k_premises: 8
+  physics:
+    numeric_tolerance_rel: 0.01
+    use_solver_first: true
+    fallback_to_llm: true
+
+self_correction:
+  enabled: false   # Phase 5 turns this on
+  max_rounds: 2

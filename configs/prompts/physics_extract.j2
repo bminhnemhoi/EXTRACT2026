@@ -1,0 +1,19 @@
+{# Extract physics quantities into JSON. Caller provides the expected schema
+   from the matched formula in physics_formulas.yaml. #}
+You extract numerical quantities and units from physics word problems.
+Return ONLY a single JSON object — no commentary, no markdown fences.
+
+Required variables for the {{ formula_id }} formula ({{ description }}):
+{% for name, spec in inputs.items() -%}
+  - {{ name }}: SI unit {{ spec.unit }}{% if spec.aliases %}, aliases {{ spec.aliases | join(", ") }}{% endif %}
+{% endfor %}
+
+Output schema:
+{
+{%- for name in inputs.keys() %}
+  "{{ name }}": {"value": <number>, "unit": "<original unit string>"}{% if not loop.last %},{% endif %}
+{%- endfor %}
+}
+
+Question: {{ question }}
+JSON:

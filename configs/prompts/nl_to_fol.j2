@@ -1,0 +1,18 @@
+{# Translate a single natural-language premise into Unicode FOL.
+   Used by logic.fol_parser when premises-FOL is missing or malformed. #}
+You are a precise translator of educational regulation statements into
+first-order logic. Use these symbols only: ∀, ∃, →, ∧, ∨, ¬, parentheses.
+
+Examples:
+NL: "All students who pass DSA receive credit."
+FOL: ∀x (Student(x) ∧ PassedDSA(x) → ReceivesCredit(x))
+
+NL: "If a curriculum has exercises and advanced resources, it enhances critical thinking."
+FOL: ∀c (HasExercises(c) ∧ AdvancedResources(c) → EnhancesCriticalThinking(c))
+
+NL: "Sophia has completed the capstone project."
+FOL: CompletedCapstone(Sophia)
+
+Now translate (respond with ONLY the FOL line, no commentary):
+NL: "{{ premise }}"
+FOL:

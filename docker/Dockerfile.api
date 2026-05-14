@@ -1,0 +1,43 @@
+# Day-1 API image: slim Python, baseline solver only. CUDA image will be
+# introduced for the LLM-serving variant in Phase 4.
+
+FROM python:3.11-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv for fast dependency resolution.
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    mv /root/.local/bin/uv /usr/local/bin/uv
+
+COPY pyproject.toml ./
+COPY src ./src
+
+RUN uv sync --no-dev --frozen 2>/dev/null || uv sync --no-dev
+
+# ----------------------------------------------------------------------------
+
+FROM python:3.11-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/app/.venv/bin:$PATH"
+
+WORKDIR /app
+
+COPY --from=builder /app /app
+COPY configs ./configs
+COPY data/cleaned ./data/cleaned
+
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD curl -fsS http://localhost:8000/healthz || exit 1
+
+CMD ["uvicorn", "exact_agent.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
