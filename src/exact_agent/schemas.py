@@ -31,6 +31,11 @@ class PredictRequest(BaseModel):
         alias="premises-FOL",
         description="Optional first-order-logic premises if known.",
     )
+    claim_FOL: str | None = Field(
+        default=None,
+        alias="claim-FOL",
+        description="Optional FOL form of the question claim (used by Z3 fallback).",
+    )
     task_type: TaskType | None = Field(
         default=None,
         description="Optional explicit task type; otherwise inferred by the router.",

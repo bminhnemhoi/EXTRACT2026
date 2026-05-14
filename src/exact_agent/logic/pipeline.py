@@ -1,7 +1,9 @@
 """Logic pipeline — wire premise_selector → rule_parser → forward_chainer → answer_verifier.
 
-Day-4 baseline: surface-form reasoning only. The FOL/Z3 path lands in
-Day 5 / Phase 4 once NL→FOL is available.
+Day-5: a Z3 entailment fallback runs when the surface chain returns
+``Unknown`` and the request carries ``premises-FOL`` plus ``claim-FOL``.
+The Z3 verdict overrides the surface one only when Z3 actually decides
+the case (Yes / No).
 """
 
 from __future__ import annotations
@@ -10,11 +12,16 @@ import re
 
 from exact_agent.agent.output_formatter import format_response
 from exact_agent.config import get_settings
-from exact_agent.logic.answer_verifier import verify_multiple_choice, verify_yes_no
+from exact_agent.logic.answer_verifier import (
+    VerifierResult,
+    verify_multiple_choice,
+    verify_yes_no,
+)
 from exact_agent.logic.explanation import render_explanation
 from exact_agent.logic.forward_chainer import forward_chain
 from exact_agent.logic.premise_selector import select_top_k
 from exact_agent.logic.rule_parser import parse_premises
+from exact_agent.logic.z3_verifier import verify_with_z3
 from exact_agent.schemas import PredictRequest, PredictResponse
 
 _OPTION_RE = re.compile(r"^([A-D])\.\s+(.+)$")
@@ -44,12 +51,42 @@ def _extract_choices(question: str) -> dict[str, str] | None:
     return choices or None
 
 
+def _try_z3_fallback(
+    payload: PredictRequest,
+    surface: VerifierResult,
+) -> VerifierResult | None:
+    """Try the Z3 backend when the surface verifier abstained or low-confidence.
+
+    Returns ``None`` if there's no signal to override (no FOL premises, or
+    surface already confidently decided), otherwise a fresh
+    ``VerifierResult`` to use instead of the surface one.
+    """
+    fol_premises = payload.premises_FOL
+    claim_fol = payload.claim_FOL
+    if not fol_premises or not claim_fol:
+        return None
+    # Don't replace a confident surface answer.
+    if surface.answer in {"Yes", "No"} and surface.confidence >= 0.7:
+        return None
+
+    z3_result = verify_with_z3(fol_premises, claim_fol)
+    if z3_result.verdict == "Unknown":
+        return None
+    return VerifierResult(
+        answer=z3_result.verdict,
+        supports=z3_result.supports,
+        rationale=f"Z3 fallback: {z3_result.rationale}",
+        confidence=0.85,
+    )
+
+
 class LogicPipeline:
     """Orchestrates: premise_selector → rule_parser → forward_chainer → answer_verifier."""
 
     def __init__(self, top_k: int | None = None) -> None:
         cfg = get_settings().pipelines.logic
         self._top_k = top_k if top_k is not None else cfg.top_k_premises
+        self._z3_enabled = cfg.use_z3_fallback
 
     def run(self, payload: PredictRequest) -> PredictResponse:
         question = payload.question
@@ -67,6 +104,12 @@ class LogicPipeline:
         else:
             verifier = verify_yes_no(question, chain)
 
+        z3_replacement: VerifierResult | None = None
+        if self._z3_enabled:
+            z3_replacement = _try_z3_fallback(payload, verifier)
+            if z3_replacement is not None:
+                verifier = z3_replacement
+
         selected_premise_texts: list[str] = []
         for pid in verifier.supports:
             if 1 <= pid <= len(premises):
@@ -76,16 +119,19 @@ class LogicPipeline:
         premises_labels = [f"P{p}" for p in verifier.supports] if verifier.supports else None
 
         top_labels = ", ".join(rp.label for rp in ranked[:5])
+        cot = [
+            f"Top premises (by overlap): {top_labels}",
+            f"Detected question type: {question_type}",
+            f"Forward chain iterations: {chain.iterations}, derived facts: {len(chain.facts)}",
+            verifier.rationale,
+        ]
+        if z3_replacement is not None:
+            cot.append("Z3 entailment fallback applied (surface chain returned Unknown).")
 
         return format_response(
             answer=verifier.answer or "Unknown",
             explanation=explanation,
-            cot=[
-                f"Top premises (by overlap): {top_labels}",
-                f"Detected question type: {question_type}",
-                f"Forward chain iterations: {chain.iterations}, derived facts: {len(chain.facts)}",
-                verifier.rationale,
-            ],
+            cot=cot,
             premises=premises_labels,
             confidence=verifier.confidence,
             task_type="logic",

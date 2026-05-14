@@ -101,6 +101,7 @@ ignore = [
 # Physics/eval modules deliberately handle Unicode glyphs (×, −, μ, Ω, ⁻²).
 # Treating them as ambiguous defeats the purpose.
 "src/exact_agent/physics/*.py" = ["RUF001", "RUF002", "RUF003"]
+"src/exact_agent/logic/*.py" = ["RUF001", "RUF002", "RUF003"]
 "src/exact_agent/eval/*.py" = ["RUF001", "RUF002", "RUF003", "PLR0911"]
 "scripts/run_eval.py" = ["RUF001", "RUF002", "RUF003"]
 "tests/unit/test_quantity_extractor.py" = ["RUF001", "RUF002", "RUF003"]

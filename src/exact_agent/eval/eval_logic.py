@@ -92,9 +92,16 @@ def _read_jsonl(path: Path) -> Iterable[dict]:
 
 
 def _build_payload(row: dict) -> PredictRequest:
+    """Translate one dataset row into the API request shape.
+
+    We forward ``premises_FOL_clean`` (when present) so the Z3 fallback can
+    fire for matching questions; the ``claim_FOL`` field stays empty until
+    the Phase-4 LLM translator produces it.
+    """
     return PredictRequest.model_validate(
         {
             "premises-NL": list(row.get("premises_NL") or []),
+            "premises-FOL": list(row.get("premises_FOL_clean") or row.get("premises_FOL") or []),
             "question": str(row.get("question") or ""),
             "task_type": "logic",
         }

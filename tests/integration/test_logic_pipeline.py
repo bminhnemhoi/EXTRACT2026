@@ -60,3 +60,31 @@ class TestLogicPipelineEndToEnd:
         resp = pipeline.run(payload)
         # Pipeline must not crash and must not over-claim.
         assert resp.answer in ("Unknown", "")
+
+    def test_z3_fallback_resolves_coreference(self, pipeline: LogicPipeline) -> None:
+        """Surface chain can't bridge ``a student``↔``Sophia``; Z3 should.
+
+        With ``premises-FOL`` + ``claim-FOL`` supplied, the pipeline
+        delegates the entailment check to Z3. The expected answer is
+        ``Yes`` even though the surface chainer alone returns ``Unknown``.
+        """
+        payload = PredictRequest.model_validate(
+            {
+                "premises-NL": [
+                    "All students who pass the exam receive credit.",
+                    "Sophia has passed the exam.",
+                ],
+                "premises-FOL": [
+                    "∀x (Student(x) ∧ PassedExam(x) → ReceivesCredit(x))",
+                    "Student(Sophia)",
+                    "PassedExam(Sophia)",
+                ],
+                "claim-FOL": "ReceivesCredit(Sophia)",
+                "question": "Does Sophia receive credit?",
+            }
+        )
+        resp = pipeline.run(payload)
+        assert resp.answer == "Yes"
+        # The Z3 fallback marker should be in the CoT trace.
+        assert resp.cot is not None
+        assert any("Z3" in step for step in resp.cot)
