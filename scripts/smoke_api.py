@@ -13,6 +13,12 @@ from dataclasses import dataclass
 
 import httpx
 
+# Force UTF-8 on stdout/stderr so Unicode characters in payloads/responses
+# (e.g. μ, →) don't crash on Windows consoles defaulting to cp1252.
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8", errors="replace")
+
 
 @dataclass(frozen=True)
 class SmokeCase:
@@ -91,7 +97,7 @@ def main() -> int:
             tag = "OK  " if (ok_required and ok_task) else "WARN"
             if not (ok_required and ok_task):
                 failures += 1
-            print(f"[{tag}] {case.name} → {json.dumps(body, ensure_ascii=False)[:140]}")
+            print(f"[{tag}] {case.name} -> {json.dumps(body, ensure_ascii=False)[:140]}")
 
     print()
     print(f"summary: {len(CASES) - failures}/{len(CASES)} cases passed")
