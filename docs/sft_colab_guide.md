@@ -114,13 +114,15 @@ composition) — those are deferred CoT work, separate from SFT.
 
 ## 5. Troubleshooting
 
-**`TypeError: Trainer.__init__() got an unexpected keyword argument
-'tokenizer'`** (cell 5, fixed in the committed notebook). Colab now
-ships transformers 5.x, which removed `Trainer(tokenizer=...)`. The
-notebook no longer passes `tokenizer=` to `SFTTrainer` (Unsloth binds
-it to the model) and moves `dataset_text_field` + `max_seq_length`
-into `SFTConfig`. If you hit this on an older copy of the notebook,
-re-pull it or apply that change.
+**`TypeError: ... unexpected keyword argument 'tokenizer'`** then, if you
+only delete it, **`AttributeError: 'NoneType' object has no attribute
+'convert_ids_to_tokens'`** (cell 5, both fixed in the committed
+notebook). transformers 5.x **renamed** `Trainer(tokenizer=...)` to
+`processing_class=...` — it was *not* removed. Dropping it entirely
+makes Unsloth's `fix_untrained_tokens` receive `tokenizer=None` →
+the AttributeError. The fix is `SFTTrainer(model=model,
+processing_class=tokenizer, ...)`, with `dataset_text_field` +
+`max_seq_length` in `SFTConfig`.
 
 **Version soup in general**: don't `pip install` a pinned `trl` /
 `transformers` next to Unsloth — let `pip install unsloth` resolve one
