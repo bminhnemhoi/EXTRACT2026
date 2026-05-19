@@ -15,8 +15,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from exact_agent.eval.metrics import (
-    numeric_match,
     parse_number,
+    quantity_match,
     token_overlap_f1,
     unit_match,
 )
@@ -131,7 +131,13 @@ def _score_sample(row: dict, solver: PhysicsSolver) -> SampleEval:
     predicted_value = result.answer_value
     predicted_answer = result.answer_str
 
-    numeric_correct = numeric_match(predicted_value, expected_answer, rel_tol=0.01)
+    numeric_correct = quantity_match(
+        predicted_value,
+        predicted_unit,
+        expected_answer,
+        expected_unit,
+        rel_tol=0.01,
+    )
     unit_correct = unit_match(predicted_unit, expected_unit)
     full_correct = numeric_correct and unit_correct
 

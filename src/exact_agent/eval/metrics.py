@@ -77,11 +77,58 @@ def numeric_match(
     rel_tol: float = 0.01,
     abs_tol: float = 1e-9,
 ) -> bool:
-    """Compare two numeric strings under a relative tolerance."""
+    """Compare two raw numbers under a relative tolerance (unit-blind).
+
+    Kept for backward compatibility and for logic-side numeric checks.
+    Physics must use :func:`quantity_match` — comparing a solver SI float
+    (e.g. ``5.99e-10`` coulomb) against a gold prefixed string
+    (``"0.6"`` nC) without unit normalization is wrong.
+    """
     p = parse_number(predicted)
     e = parse_number(expected)
     if p is None or e is None:
         return False
+    return math.isclose(p, e, rel_tol=rel_tol, abs_tol=abs_tol)
+
+
+def quantity_match(
+    pred_value: str | float | None,
+    pred_unit: str | None,
+    exp_value: str | float | None,
+    exp_unit: str | None,
+    *,
+    rel_tol: float = 0.01,
+    abs_tol: float = 1e-9,
+) -> bool:
+    """Unit-aware numeric comparison.
+
+    When both sides carry a unit and the units are dimensionally
+    convertible, the predicted magnitude is converted into the gold's
+    unit before the tolerance check — so ``5.99e-10 C`` matches the gold
+    ``0.6 nC``. When a unit is missing or the conversion fails, we fall
+    back to the legacy raw comparison (:func:`numeric_match` semantics)
+    so the metric never regresses on unit-free answers.
+
+    Comparing in the gold's natural unit (magnitude ~1) instead of raw
+    SI (magnitude ~1e-10) also removes the ``abs_tol``-swamps-tiny-values
+    failure mode of the old path.
+    """
+    p = parse_number(pred_value)
+    e = parse_number(exp_value)
+    if p is None or e is None:
+        return False
+
+    pu = normalize_unit_string(pred_unit or "")
+    eu = normalize_unit_string(exp_unit or "")
+    if pu and eu:
+        try:
+            converted = convert(p, pu, eu)
+        except UnitConversionError:
+            converted = None
+        if converted is not None:
+            return math.isclose(converted.value_si, e, rel_tol=rel_tol, abs_tol=abs_tol)
+
+    # No usable units (or inconvertible) → legacy raw compare.
     return math.isclose(p, e, rel_tol=rel_tol, abs_tol=abs_tol)
 
 

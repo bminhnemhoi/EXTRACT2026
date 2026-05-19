@@ -8,6 +8,7 @@ from exact_agent.eval.metrics import (
     label_match,
     numeric_match,
     parse_number,
+    quantity_match,
     token_overlap_f1,
     unit_match,
 )
@@ -50,6 +51,42 @@ class TestNumericMatch:
     def test_handles_units_in_string(self) -> None:
         # parse_number picks the leading number; the unit suffix is ignored.
         assert numeric_match("0.045 J", "0.045")
+
+
+class TestQuantityMatch:
+    def test_si_value_matches_prefixed_gold(self) -> None:
+        # The exact Day-8 defect: solver emits SI coulombs, gold is in nC.
+        # TD039: 5.987e-10 C  ==  0.6 nC
+        assert quantity_match(5.987e-10, "coulomb", "0.6", "nC")
+
+    def test_td060_and_td181_real_cases(self) -> None:
+        assert quantity_match(7.27e-10, "coulomb", "0.73", "nC")
+        assert quantity_match(1.454e-9, "coulomb", "1.46", "nC")
+
+    def test_genuinely_wrong_still_fails(self) -> None:
+        # TD397: solver 8927 C vs gold 26.55 nC — must stay False.
+        assert not quantity_match(8927.464, "coulomb", "26.55", "nC")
+
+    def test_same_unit_passthrough(self) -> None:
+        assert quantity_match(0.045, "joule", "0.045", "J")
+
+    def test_microfarad_gold(self) -> None:
+        # 1e-4 F  ==  100 µF
+        assert quantity_match(1e-4, "farad", "100", "μF")
+
+    def test_missing_units_falls_back_to_raw(self) -> None:
+        # No units → legacy numeric_match behavior.
+        assert quantity_match(0.045, "", "0.045", "")
+        assert not quantity_match(0.05, "", "0.045", "", rel_tol=0.001)
+
+    def test_inconvertible_units_falls_back_to_raw(self) -> None:
+        # volt vs farad are not convertible → raw compare of the magnitudes.
+        assert quantity_match(3.0, "volt", "3.0", "farad")
+        assert not quantity_match(3.0, "volt", "9.0", "farad")
+
+    def test_none_inputs_return_false(self) -> None:
+        assert not quantity_match(None, "coulomb", "0.6", "nC")
+        assert not quantity_match(5e-10, "coulomb", None, "nC")
 
 
 class TestUnitMatch:
