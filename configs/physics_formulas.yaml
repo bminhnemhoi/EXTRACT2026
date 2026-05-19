@@ -258,3 +258,29 @@ formulas:
       symbol: I
       unit: "ampere"
     expression: "sqrt(2*W/L)"
+
+  coulomb_force_at_midpoint:
+    topic: LD
+    description: "Net Coulomb force on charge q3 at the midpoint of opposite-sign q1,q2 a distance d apart: F = 4k|q3|(|q1|+|q2|)/d²"
+    inputs:
+      q1: { unit: "coulomb", aliases: ["charge1"] }
+      q2: { unit: "coulomb", aliases: ["charge2"] }
+      q3: { unit: "coulomb", aliases: ["q", "test_charge", "charge3"] }
+      d:  { unit: "meter",   aliases: ["distance", "separation", "AB"] }
+    output:
+      symbol: F
+      unit: "newton"
+    expression: "4 * 8.9875517923e9 * Abs(q3) * (Abs(q1) + Abs(q2)) / d**2"
+
+  coulomb_force_perp_bisector:
+    topic: LD
+    description: "Force on test charge q on the perpendicular bisector of a dipole (±q1, separation d), distance h from the midpoint: F = k|q1·q|·d/((d/2)²+h²)^1.5"
+    inputs:
+      q1: { unit: "coulomb", aliases: ["charge", "source_charge"] }
+      q:  { unit: "coulomb", aliases: ["test_charge", "q_test", "q0"] }
+      d:  { unit: "meter",   aliases: ["separation", "AB"] }
+      h:  { unit: "meter",   aliases: ["distance", "bisector_distance", "l"] }
+    output:
+      symbol: F
+      unit: "newton"
+    expression: "8.9875517923e9 * Abs(q1*q) * d / ((d/2)**2 + h**2)**1.5"

@@ -47,6 +47,31 @@ class TestCanonicalProblems:
         assert math.isclose(result.answer_value, 15.13, rel_tol=1e-3)
         assert result.answer_unit == "newton"
 
+    def test_coulomb_force_at_midpoint(self, solver: PhysicsSolver) -> None:
+        # LD022: q3 at midpoint of opposite-sign q1,q2; F=4k|q3|(|q1|+|q2|)/d².
+        q = (
+            "Two charges q1 = 2 μC and q2 = -2 μC are placed d = 10 cm apart. "
+            "A charge q3 = 1 μC is placed at the midpoint. Find the net force on q3."
+        )
+        r = solver.solve(q)
+        assert r.success, r.fail_reason
+        assert r.formula_id == "coulomb_force_at_midpoint"
+        assert math.isclose(r.answer_value, 14.4, rel_tol=2e-2)
+        assert r.answer_unit == "newton"
+
+    def test_coulomb_force_perp_bisector(self, solver: PhysicsSolver) -> None:
+        # LD219: dipole, test charge on perpendicular bisector.
+        q = (
+            "Charges q1 = 5e-8 C and -5e-8 C are d = 10 cm apart. A test charge "
+            "q = 1e-8 C is on the perpendicular bisector, h = 4 cm from the midpoint. "
+            "Find the force."
+        )
+        r = solver.solve(q)
+        assert r.success, r.fail_reason
+        assert r.formula_id == "coulomb_force_perp_bisector"
+        assert math.isclose(r.answer_value, 1.712e-3, rel_tol=2e-2)
+        assert r.answer_unit == "newton"
+
     def test_parallel_resistance(self, solver: PhysicsSolver) -> None:
         question = "Two resistors R1 = 4 ohm and R2 = 6 ohm are connected in parallel."
         result = solver.solve(question)

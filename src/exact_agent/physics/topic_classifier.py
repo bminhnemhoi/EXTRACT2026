@@ -154,6 +154,18 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
         ),
         "resultant_two_forces",
     ),
+    # Geometry-specific Coulomb closed forms — MUST precede generic
+    # coulomb_force ("force acting on") so a 3-charge midpoint /
+    # perpendicular-bisector problem doesn't fall into the single-pair
+    # formula (right unit, wrong physics).
+    (
+        ("at the midpoint", "midpoint of the line segment", "midpoint o"),
+        "coulomb_force_at_midpoint",
+    ),
+    (
+        ("perpendicular bisector",),
+        "coulomb_force_perp_bisector",
+    ),
     # Coulomb / force between charges.
     (("coulomb",), "coulomb_force"),
     (("force between", "force acting on", "force on the charge"), "coulomb_force"),
@@ -194,6 +206,8 @@ _TARGET_WORDS: dict[str, frozenset[str]] = {
     "voltage_from_energy_capacitance": frozenset({"voltage", "potential difference"}),
     "capacitance_from_energy_voltage": frozenset({"capacitance"}),
     "coulomb_force": frozenset({"force", "newton"}),
+    "coulomb_force_at_midpoint": frozenset({"midpoint", "force"}),
+    "coulomb_force_perp_bisector": frozenset({"bisector", "force"}),
     "resultant_two_forces": frozenset({"resultant", "angle"}),
     "electric_field_point_charge": frozenset({"intensity", "strength", "magnitude"}),
     "ohm_law_voltage": frozenset({"voltage", "volt"}),
