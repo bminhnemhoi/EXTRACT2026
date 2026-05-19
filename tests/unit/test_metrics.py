@@ -108,6 +108,25 @@ class TestUnitMatch:
     def test_empty_both(self) -> None:
         assert unit_match("", "")
 
+    @pytest.mark.parametrize(
+        ("p", "e"),
+        [
+            ("dimensionless", "-"),
+            ("dimensionless", ""),
+            ("-", ""),
+            ("dimensionless", "ratio"),
+            ("none", "-"),
+        ],
+    )
+    def test_dimensionless_tokens_all_match(self, p: str, e: str) -> None:
+        # k-factor / power-factor answers: solver says "dimensionless",
+        # gold writes "-" — must not fail on the cosmetic difference.
+        assert unit_match(p, e)
+
+    def test_dimensionless_does_not_match_real_unit(self) -> None:
+        assert not unit_match("dimensionless", "V")
+        assert not unit_match("-", "ohm")
+
 
 class TestLabelMatch:
     def test_case_insensitive(self) -> None:

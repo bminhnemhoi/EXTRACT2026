@@ -136,14 +136,31 @@ def quantity_match(
 # Unit comparison
 # ---------------------------------------------------------------------------
 
+# Tokens that all mean "no physical unit". A dimensionless solver answer
+# (e.g. the resonance frequency factor k) carries unit "dimensionless"
+# while the gold writes "-" or leaves it blank — these must compare equal.
+_DIMENSIONLESS_TOKENS = frozenset({"", "-", "–", "—", "dimensionless", "none", "n/a", "ratio"})
+
+
+def _is_dimensionless(token: str) -> bool:
+    return token.strip().lower() in _DIMENSIONLESS_TOKENS
+
 
 def unit_match(predicted: str | None, expected: str | None) -> bool:
-    """True when the two unit strings share dimensionality (V == volt, J == joule)."""
-    if not predicted or not expected:
-        # An empty predicted unit is acceptable when the gold is also empty.
-        return (predicted or "").strip() == (expected or "").strip()
-    pred_norm = normalize_unit_string(predicted)
-    exp_norm = normalize_unit_string(expected)
+    """True when the two unit strings share dimensionality (V == volt, J == joule).
+
+    Any pair of "no real unit" spellings (``""``, ``"-"``, ``"dimensionless"``,
+    …) is treated as a match so a numerically-correct dimensionless answer
+    isn't failed on a cosmetic unit-string difference.
+    """
+    p_raw = (predicted or "").strip()
+    e_raw = (expected or "").strip()
+    if _is_dimensionless(p_raw) and _is_dimensionless(e_raw):
+        return True
+    if not p_raw or not e_raw:
+        return p_raw == e_raw
+    pred_norm = normalize_unit_string(p_raw)
+    exp_norm = normalize_unit_string(e_raw)
     if pred_norm.lower() == exp_norm.lower():
         return True
     try:

@@ -38,6 +38,58 @@ class ClassificationResult:
 # variants beat generic "electric field" because real questions like
 # "energy stored in the electric field" must route to capacitor_energy.
 _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
+    # --- Day-11 RLC-resonance / error / inductor closed forms. Highly
+    # specific phrases; placed first so they can't be pre-empted. Order
+    # inside this block matters: 'pure resistance' (resistance_at_resonance)
+    # is checked before the 'resonant rlc circuit' power phrasing so CH001
+    # ("...determine the pure resistance R") doesn't fall into power. ---
+    (
+        (
+            "by what factor",
+            "factor must the angular frequency",
+            "angular frequency must be set to",
+            "angular frequency be multiplied",
+            "factor of ω0",
+            "factor of w0",
+        ),
+        "resonance_frequency_factor",
+    ),
+    (
+        (
+            "what capacitance must",
+            "capacitance must the capacitor have",
+            "to achieve resonance",
+            "to resonate at",
+            "resonate at a frequency",
+        ),
+        "capacitance_for_resonance",
+    ),
+    (
+        ("pure resistance",),
+        "resistance_at_resonance",
+    ),
+    (
+        (
+            "resonant rlc circuit",
+            "rlc resonant circuit",
+            "rlc resonant",
+        ),
+        "power_at_resonance",
+    ),
+    (
+        (
+            "relative error",
+            "percentage relative error",
+            "percentage error",
+            "percent error",
+        ),
+        "relative_error_percent",
+    ),
+    (
+        # "of magnetic energy" excludes "total electromagnetic energy" (DDT354).
+        ("of magnetic energy", "stores magnetic energy"),
+        "current_from_inductor_energy",
+    ),
     # Capacitor-energy-derived unknowns (must come first — they often mention
     # both 'energy' and 'electric field' in the same question).
     (
@@ -151,6 +203,12 @@ _TARGET_WORDS: dict[str, frozenset[str]] = {
     "parallel_resistance_two": frozenset({"resistance", "ohm"}),
     "rlc_impedance": frozenset({"impedance"}),
     "resonance_frequency": frozenset({"frequency", "resonan", "hertz"}),
+    "capacitance_for_resonance": frozenset({"resonate", "resonance"}),
+    "resonance_frequency_factor": frozenset({"factor", "angular frequency"}),
+    "resistance_at_resonance": frozenset({"resistance", "resonan"}),
+    "power_at_resonance": frozenset({"power", "resonan"}),
+    "relative_error_percent": frozenset({"error", "%"}),
+    "current_from_inductor_energy": frozenset({"current", "inductor", "magnetic"}),
     "magnetic_field_solenoid": frozenset({"magnetic", "field", "tesla"}),
     "magnetic_field_long_wire": frozenset({"magnetic", "field", "tesla"}),
 }

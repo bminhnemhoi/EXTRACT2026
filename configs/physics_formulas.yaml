@@ -193,3 +193,68 @@ formulas:
       symbol: R
       unit: "newton"
     expression: "sqrt(F1**2 + F2**2 + 2*F1*F2*cos(theta*pi/180))"
+
+  capacitance_for_resonance:
+    topic: CH
+    description: "Capacitance needed for an LC circuit to resonate at frequency f: C = 1/(L·(2π·f)²)"
+    inputs:
+      L: { unit: "henry", aliases: ["inductance"] }
+      f: { unit: "hertz", aliases: ["frequency", "resonant_frequency"] }
+    output:
+      symbol: C
+      unit: "farad"
+    expression: "1/(L*(2*pi*f)**2)"
+
+  resonance_frequency_factor:
+    topic: CH
+    description: "Factor k to scale ω0 so a series RLC reaches resonance: k = sqrt(X_C/X_L)"
+    inputs:
+      X_L: { unit: "ohm", aliases: ["XL", "inductive_reactance"] }
+      X_C: { unit: "ohm", aliases: ["XC", "capacitive_reactance"] }
+    output:
+      symbol: k
+      unit: "dimensionless"
+    expression: "sqrt(X_C/X_L)"
+
+  resistance_at_resonance:
+    topic: CH
+    description: "At resonance X_L = X_C so impedance equals the pure resistance: R = Z"
+    inputs:
+      Z: { unit: "ohm", aliases: ["impedance"] }
+    output:
+      symbol: R
+      unit: "ohm"
+    expression: "Z"
+
+  power_at_resonance:
+    topic: CH
+    description: "Power of a series RLC at resonance (Z = R): P = U²/R"
+    inputs:
+      U: { unit: "volt", aliases: ["voltage", "V", "rms_voltage"] }
+      R: { unit: "ohm",  aliases: ["resistance"] }
+    output:
+      symbol: P
+      unit: "watt"
+    expression: "U**2/R"
+
+  relative_error_percent:
+    topic: THCB
+    description: "Percentage relative error: (Δ/value)·100"
+    inputs:
+      delta: { unit: "dimensionless", aliases: ["absolute_error", "uncertainty", "least_count"] }
+      value: { unit: "dimensionless", aliases: ["measured_value", "reading"] }
+    output:
+      symbol: e
+      unit: "%"
+    expression: "(delta/value)*100"
+
+  current_from_inductor_energy:
+    topic: NL
+    description: "Current in an inductor from stored magnetic energy: I = sqrt(2·W/L)"
+    inputs:
+      W: { unit: "joule", aliases: ["energy", "magnetic_energy", "E"] }
+      L: { unit: "henry", aliases: ["inductance"] }
+    output:
+      symbol: I
+      unit: "ampere"
+    expression: "sqrt(2*W/L)"

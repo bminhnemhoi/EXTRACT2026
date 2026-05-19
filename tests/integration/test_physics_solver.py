@@ -53,6 +53,62 @@ class TestCanonicalProblems:
         assert result.success, result.fail_reason
         assert math.isclose(result.answer_value, 2.4, rel_tol=1e-9)
 
+    def test_capacitance_for_resonance(self, solver: PhysicsSolver) -> None:
+        # CH062: C = 1/(L·(2πf)²); L=0.2 H, f=100 Hz → ~12.67 µF
+        q = (
+            "What capacitance must the capacitor have for an LC circuit "
+            "with L = 0.2 H to resonate at f = 100 Hz?"
+        )
+        r = solver.solve(q)
+        assert r.success, r.fail_reason
+        assert r.formula_id == "capacitance_for_resonance"
+        assert math.isclose(r.answer_value, 1.2665e-5, rel_tol=1e-3)
+
+    def test_resonance_frequency_factor(self, solver: PhysicsSolver) -> None:
+        # CH187: k = sqrt(X_C/X_L); 25, 225 → 3
+        q = (
+            "In a series RLC circuit, X_L = 25 ohm and X_C = 225 ohm. "
+            "By what factor of ω0 should the angular frequency be set?"
+        )
+        r = solver.solve(q)
+        assert r.success, r.fail_reason
+        assert r.formula_id == "resonance_frequency_factor"
+        assert math.isclose(r.answer_value, 3.0, rel_tol=1e-6)
+
+    def test_resistance_at_resonance(self, solver: PhysicsSolver) -> None:
+        q = (
+            "In a resonant RLC circuit, the measured impedance is Z = 40 ohm. "
+            "Find the pure resistance R."
+        )
+        r = solver.solve(q)
+        assert r.success, r.fail_reason
+        assert r.formula_id == "resistance_at_resonance"
+        assert math.isclose(r.answer_value, 40.0, rel_tol=1e-9)
+
+    def test_power_at_resonance(self, solver: PhysicsSolver) -> None:
+        q = (
+            "A resonant RLC circuit has a resistance R = 25 ohm and an "
+            "applied voltage U = 100 V. Find the power."
+        )
+        r = solver.solve(q)
+        assert r.success, r.fail_reason
+        assert r.formula_id == "power_at_resonance"
+        assert math.isclose(r.answer_value, 400.0, rel_tol=1e-9)
+
+    def test_relative_error_percent(self, solver: PhysicsSolver) -> None:
+        q = "A voltmeter with delta = 0.2 reads value = 5.6. What is the relative error percentage?"
+        r = solver.solve(q)
+        assert r.success, r.fail_reason
+        assert r.formula_id == "relative_error_percent"
+        assert math.isclose(r.answer_value, 3.5714, rel_tol=1e-3)
+
+    def test_current_from_inductor_energy(self, solver: PhysicsSolver) -> None:
+        q = "A coil with L = 0.1 H stores W = 0.2 J of magnetic energy. What current I flows?"
+        r = solver.solve(q)
+        assert r.success, r.fail_reason
+        assert r.formula_id == "current_from_inductor_energy"
+        assert math.isclose(r.answer_value, 2.0, rel_tol=1e-6)
+
 
 class TestFailureModes:
     def test_no_formula_matches(self, solver: PhysicsSolver) -> None:

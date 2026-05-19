@@ -263,6 +263,14 @@ class PhysicsSolver:
             quantity = self._resolve_alias(formula, extracted, symbol)
             if quantity is None:
                 raise KeyError(symbol)
+            # Dimensionless inputs (ratios, counts) are unit-agnostic by
+            # definition — the raw extracted number is what the expression
+            # needs. Skip pint so a stray token grabbed as a "unit"
+            # (e.g. "0.2 reads") doesn't fail an otherwise valid solve.
+            if spec.unit == "dimensionless":
+                values_si[symbol] = quantity.value
+                trace.append(f"Use {symbol} = {quantity.value} (dimensionless)")
+                continue
             if not quantity.unit:
                 # No unit text — assume the value is already in the SI target.
                 values_si[symbol] = quantity.value
