@@ -170,9 +170,7 @@ def quantity_match(
         except UnitConversionError:
             converted = None
         if converted is not None:
-            return _values_agree(
-                converted.value_si, e, exp_value, rel_tol=rel_tol, abs_tol=abs_tol
-            )
+            return _values_agree(converted.value_si, e, exp_value, rel_tol=rel_tol, abs_tol=abs_tol)
 
     # No usable units (or inconvertible) → legacy raw compare.
     return _values_agree(p, e, exp_value, rel_tol=rel_tol, abs_tol=abs_tol)
