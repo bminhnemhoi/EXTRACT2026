@@ -38,6 +38,16 @@ class LLMConfig:
     timeout_s: float
     enable_lora: bool
     lora_adapter_path: str
+    mode: str = "completion"
+    """``chat`` routes ``complete()`` through /v1/chat/completions (applies the
+    model's chat template — required for instruct models like Qwen3 on Ollama).
+    ``completion`` uses the raw /v1/completions endpoint."""
+    disable_thinking: bool = False
+    """Qwen3 is a reasoning model: by default it spends tokens in a hidden
+    ``reasoning`` channel and leaves ``content`` empty until it finishes
+    thinking. Our architecture wants direct JSON (the solver does the
+    reasoning), so we prepend the ``/no_think`` soft switch — portable
+    across Ollama and vLLM."""
 
     @classmethod
     def from_yaml(cls, path: str | None = None) -> LLMConfig:
@@ -54,6 +64,8 @@ class LLMConfig:
             timeout_s=float(data.get("timeout_s", 20)),
             enable_lora=bool(data.get("enable_lora", False)),
             lora_adapter_path=str(data.get("lora_adapter_path", "")),
+            mode=str(data.get("mode", "completion")).lower(),
+            disable_thinking=bool(data.get("disable_thinking", False)),
         )
 
 
@@ -84,14 +96,27 @@ class VLLMClient:
 
     @llm_retry()
     def complete(self, prompt: str, *, max_tokens: int | None = None) -> str:
-        payload = self._build_completion_payload(prompt, max_tokens=max_tokens)
-        response = self._http.post(
-            f"{self._cfg.base_url.rstrip('/')}/completions",
-            json=payload,
-        )
-        response.raise_for_status()
-        body = response.json()
-        return _extract_completion_text(body)
+        # In chat mode, wrap the prompt as a single user turn so the server
+        # applies the model's chat template. The caller API is unchanged —
+        # llm_extractor / llm_translator / self_correction don't care which
+        # endpoint actually served the text. Retry is applied once here;
+        # the delegated path uses the undecorated `_do_chat`.
+        prompt = self._maybe_no_think(prompt)
+        if self._cfg.mode == "chat":
+            return self._do_chat(
+                [{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+            )
+        return self._do_completion(prompt, max_tokens=max_tokens)
+
+    def _maybe_no_think(self, prompt: str) -> str:
+        """Prepend the Qwen3 ``/no_think`` soft switch when configured.
+
+        Idempotent — won't double-prefix if the caller already added it.
+        """
+        if self._cfg.disable_thinking and not prompt.lstrip().startswith("/no_think"):
+            return f"/no_think\n{prompt}"
+        return prompt
 
     @llm_retry()
     def chat(
@@ -99,6 +124,28 @@ class VLLMClient:
         messages: Sequence[dict[str, str]],
         *,
         max_tokens: int | None = None,
+    ) -> str:
+        return self._do_chat(messages, max_tokens=max_tokens)
+
+    def close(self) -> None:
+        self._http.close()
+
+    # ---- undecorated HTTP impls (retry applied by the public wrappers) -----
+
+    def _do_completion(self, prompt: str, *, max_tokens: int | None) -> str:
+        payload = self._build_completion_payload(prompt, max_tokens=max_tokens)
+        response = self._http.post(
+            f"{self._cfg.base_url.rstrip('/')}/completions",
+            json=payload,
+        )
+        response.raise_for_status()
+        return _extract_completion_text(response.json())
+
+    def _do_chat(
+        self,
+        messages: Sequence[dict[str, str]],
+        *,
+        max_tokens: int | None,
     ) -> str:
         payload = {
             "model": self._cfg.model,
@@ -112,11 +159,7 @@ class VLLMClient:
             json=payload,
         )
         response.raise_for_status()
-        body = response.json()
-        return _extract_chat_text(body)
-
-    def close(self) -> None:
-        self._http.close()
+        return _extract_chat_text(response.json())
 
     # ---- internals ---------------------------------------------------------
 
@@ -148,8 +191,14 @@ def _extract_chat_text(body: dict[str, Any]) -> str:
     if not choices:
         return ""
     message = choices[0].get("message") or {}
-    content = message.get("content") or ""
-    return str(content).strip()
+    content = str(message.get("content") or "").strip()
+    if content:
+        return content
+    # Defensive: a reasoning model that ignored /no_think (or ran out of
+    # tokens mid-think) leaves `content` empty and the text in `reasoning`.
+    # Surface that rather than returning "" — the JSON parser can still try
+    # to recover a {...} block from it.
+    return str(message.get("reasoning") or "").strip()
 
 
 def parse_json_completion(text: str) -> Any:

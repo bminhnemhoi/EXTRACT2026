@@ -29,5 +29,9 @@ pipelines:
     fallback_to_llm: true
 
 self_correction:
-  enabled: false   # Phase 5 turns this on
+  # Default OFF: keeps tests/CI deterministic and the API LLM-free unless a
+  # local/remote endpoint is intended. Verified working Day 8 (live smoke
+  # 5/5 with it ON). Production / submission flips this to true once a
+  # vLLM endpoint with the SFT'd adapter is wired (see ADR 0008).
+  enabled: false
   max_rounds: 2

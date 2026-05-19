@@ -1,17 +1,27 @@
 """Top-level orchestrator: route → run pipeline → optional self-correction.
 
 This is the only entry point the API layer needs to know about. Pipelines
-themselves never touch HTTP concerns. Self-correction is opt-in via
-``configs/app.yaml::self_correction.enabled`` and a configured LLM client.
+themselves never touch HTTP concerns.
+
+LLM resolution policy:
+
+* An explicit ``llm_client`` always wins.
+* Otherwise, if ``configs/app.yaml::self_correction.enabled`` is true, the
+  orchestrator auto-constructs a :class:`VLLMClient` from
+  ``configs/model.yaml`` so the live API exercises the LLM fallback paths
+  (physics extractor, logic NL→FOL) *and* the self-correction loop. The
+  client is lazy — if the endpoint is unreachable the fallbacks degrade to
+  the deterministic answer rather than erroring.
 """
 
 from __future__ import annotations
 
 from exact_agent.agent.self_correction import SelfCorrector
 from exact_agent.config import get_settings
-from exact_agent.llm.vllm_client import LLMClient
+from exact_agent.llm.vllm_client import LLMClient, VLLMClient
 from exact_agent.logic.pipeline import LogicPipeline
 from exact_agent.physics.pipeline import PhysicsPipeline
+from exact_agent.physics.solver import PhysicsSolver
 from exact_agent.router import route_task
 from exact_agent.schemas import PredictRequest, PredictResponse
 
@@ -24,9 +34,10 @@ class Orchestrator:
         llm_client: LLMClient | None = None,
         self_corrector: SelfCorrector | None = None,
     ) -> None:
-        self._logic = logic_pipeline or LogicPipeline(llm_client=llm_client)
-        self._physics = physics_pipeline or PhysicsPipeline()  # PhysicsPipeline wraps solver
-        self._corrector = self._build_corrector(llm_client, self_corrector)
+        client = self._resolve_llm(llm_client)
+        self._logic = logic_pipeline or LogicPipeline(llm_client=client)
+        self._physics = physics_pipeline or PhysicsPipeline(solver=PhysicsSolver(llm_client=client))
+        self._corrector = self._build_corrector(client, self_corrector)
 
     def predict(self, payload: PredictRequest) -> PredictResponse:
         task = route_task(payload)
@@ -35,6 +46,17 @@ class Orchestrator:
             return draft
         outcome = self._corrector.maybe_revise(draft, payload, task)
         return outcome.response
+
+    @staticmethod
+    def _resolve_llm(explicit: LLMClient | None) -> LLMClient | None:
+        if explicit is not None:
+            return explicit
+        if get_settings().self_correction.enabled:
+            # Construct from configs/model.yaml. httpx.Client creation does
+            # not open a socket; an unreachable endpoint only bites on the
+            # first call, where the fallbacks already handle failure.
+            return VLLMClient()
+        return None
 
     @staticmethod
     def _build_corrector(

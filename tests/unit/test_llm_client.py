@@ -2,12 +2,36 @@
 
 from __future__ import annotations
 
+import httpx
 import pytest
 
 from exact_agent.llm.vllm_client import (
+    LLMConfig,
     MockLLMClient,
+    VLLMClient,
     parse_json_completion,
 )
+
+
+def _config(mode: str) -> LLMConfig:
+    return LLMConfig(
+        base_url="http://test-endpoint/v1",
+        api_key="x",
+        model="qwen3:4b",
+        max_tokens=64,
+        temperature=0.2,
+        top_p=0.9,
+        timeout_s=5,
+        enable_lora=False,
+        lora_adapter_path="",
+        mode=mode,
+    )
+
+
+def _client_with_transport(mode: str, handler) -> VLLMClient:  # type: ignore[no-untyped-def]
+    client = VLLMClient(_config(mode))
+    client._http = httpx.Client(transport=httpx.MockTransport(handler))
+    return client
 
 
 class TestParseJsonCompletion:
@@ -43,3 +67,38 @@ class TestMockLLMClient:
         client = MockLLMClient([])
         with pytest.raises(RuntimeError):
             client.complete("p")
+
+
+class TestModeRouting:
+    def test_chat_mode_routes_complete_through_chat_endpoint(self) -> None:
+        seen: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request.url.path)
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": "chat-said-this"}}]},
+            )
+
+        client = _client_with_transport("chat", handler)
+        out = client.complete("hello")
+        assert out == "chat-said-this"
+        assert seen == ["/v1/chat/completions"]
+
+    def test_completion_mode_uses_completions_endpoint(self) -> None:
+        seen: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request.url.path)
+            return httpx.Response(200, json={"choices": [{"text": "raw-completion"}]})
+
+        client = _client_with_transport("completion", handler)
+        out = client.complete("hello")
+        assert out == "raw-completion"
+        assert seen == ["/v1/completions"]
+
+    def test_yaml_default_mode_is_chat(self) -> None:
+        # configs/model.yaml was switched to Ollama chat mode in Day 8.
+        cfg = LLMConfig.from_yaml()
+        assert cfg.mode == "chat"
+        assert "11434" in cfg.base_url

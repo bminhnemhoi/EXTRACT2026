@@ -2,7 +2,7 @@
 
 Usage::
 
-    # default: physics eval split
+    # default: rule-only physics eval split
     uv run python scripts/run_eval.py
 
     # explicit task and output dir
@@ -10,12 +10,17 @@ Usage::
 
     # dump per-sample diagnostics too (slower / larger file)
     uv run python scripts/run_eval.py --include-samples
+
+    # exercise the LLM fallback paths (needs a running vLLM/Ollama endpoint
+    # at configs/model.yaml::llm.vllm_base_url); --limit for a quick subset
+    uv run python scripts/run_eval.py --task physics --with-llm --limit 15
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -35,10 +40,41 @@ EVAL_SPLITS = {
     "physics": REPO_ROOT / "data" / "eval_split" / "physics_eval.jsonl",
     "logic": REPO_ROOT / "data" / "eval_split" / "logic_eval.jsonl",
 }
-RUNNERS = {
-    "physics": run_physics_eval,
-    "logic": run_logic_eval,
-}
+
+
+def _truncate_split(split_path: Path, limit: int) -> Path:
+    """Write the first ``limit`` rows to a temp JSONL and return its path.
+
+    Keeps eval_physics/eval_logic untouched — they just read whatever path
+    they're handed.
+    """
+    lines: list[str] = []
+    with split_path.open("r", encoding="utf-8") as f:
+        for raw in f:
+            if raw.strip():
+                lines.append(raw)
+            if len(lines) >= limit:
+                break
+    tmp = Path(tempfile.gettempdir()) / f"exact_eval_subset_{split_path.stem}_{limit}.jsonl"
+    tmp.write_text("".join(lines), encoding="utf-8")
+    return tmp
+
+
+def _build_runner_arg(task: str, with_llm: bool):  # type: ignore[no-untyped-def]
+    """Return the solver/pipeline to inject, or None for the rule-only path."""
+    if not with_llm:
+        return None
+    # Lazy imports: only touch the LLM stack when actually requested.
+    from exact_agent.llm.vllm_client import VLLMClient  # noqa: PLC0415
+
+    client = VLLMClient()
+    if task == "physics":
+        from exact_agent.physics.solver import PhysicsSolver  # noqa: PLC0415
+
+        return PhysicsSolver(llm_client=client)
+    from exact_agent.logic.pipeline import LogicPipeline  # noqa: PLC0415
+
+    return LogicPipeline(llm_client=client)
 
 
 def main() -> int:
@@ -56,6 +92,17 @@ def main() -> int:
         action="store_true",
         help="Embed per-sample evaluations in the JSON report.",
     )
+    parser.add_argument(
+        "--with-llm",
+        action="store_true",
+        help="Inject a VLLMClient so the LLM fallback paths fire (needs an endpoint).",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="Evaluate only the first N rows (0 = all). Use for a quick LLM sanity pass.",
+    )
     args = parser.parse_args()
 
     split_path: Path = args.split or EVAL_SPLITS[args.task]
@@ -64,10 +111,22 @@ def main() -> int:
         print("  -> run: uv run python scripts/build_eval_split.py", file=sys.stderr)
         return 1
 
-    print(f"[info] evaluating {args.task} on {split_path.name} ...")
-    report = RUNNERS[args.task](split_path)
+    if args.limit > 0:
+        split_path = _truncate_split(split_path, args.limit)
+        print(f"[info] limited to first {args.limit} rows → {split_path.name}")
+
+    runner_arg = _build_runner_arg(args.task, args.with_llm)
+    mode = "LLM-enabled" if args.with_llm else "rule-only"
+    print(f"[info] evaluating {args.task} ({mode}) on {split_path.name} ...")
+
+    if args.task == "physics":
+        report = run_physics_eval(split_path, runner_arg)
+    else:
+        report = run_logic_eval(split_path, runner_arg)
+
+    stem = f"{args.task}_llm" if args.with_llm else args.task
     md_path, json_path = write_outputs(
-        report, args.out, stem=args.task, include_samples=args.include_samples
+        report, args.out, stem=stem, include_samples=args.include_samples
     )
     print(render_markdown(report))
     print(f"[ok] wrote {md_path}")

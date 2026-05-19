@@ -1,19 +1,37 @@
 # LLM backbone configuration.
-# Inference is delegated to a vLLM server (OpenAI-compatible API). For Day 1
-# the LLM is not yet invoked — these fields are placeholders.
+# Inference is delegated to an OpenAI-compatible server. Local dev/verify
+# uses Ollama (http://localhost:11434/v1); production swaps in vLLM with the
+# SFT'd Qwen3-8B adapter. Only the URL + model id change between the two.
 
 llm:
-  backbone: "Qwen/Qwen3-8B"
-  vllm_base_url: "http://localhost:8001/v1"
-  api_key: "local-no-auth"
+  # Local verification: Ollama serving Qwen2.5-3B-Instruct (fits 6 GB RTX
+  # 4050). NOTE: Qwen3-* on Ollama force a reasoning channel that leaves
+  # `content` empty and breaks utility-extraction (no /no_think /
+  # think:false / chat_template_kwargs switch suppresses it — verified
+  # Day 8). Our architecture wants a NON-thinking extractor: the solver
+  # does the reasoning. Qwen2.5-Instruct emits clean direct JSON.
+  # Production SFT target stays an ≤8B model on a rented GPU (see ADR 0002,
+  # 0008) — re-evaluate Qwen2.5-7B-Instruct vs Qwen3-8B there.
+  backbone: "qwen2.5:3b-instruct"
+  vllm_base_url: "http://localhost:11434/v1"
+  api_key: "ollama-no-auth"
+  # `chat`  → route via /v1/chat/completions (applies the model's chat
+  #           template; required for instruct models on Ollama).
+  # `completion` → legacy /v1/completions (raw text-in/text-out).
+  mode: "chat"
+  # Qwen2.5-Instruct does not have a thinking channel — leave off.
+  disable_thinking: false
   max_tokens: 1024
   temperature: 0.2
   top_p: 0.9
-  timeout_s: 20
+  timeout_s: 120        # 4B on 6 GB VRAM offloads layers to CPU — be generous
   enable_lora: false
-  lora_adapter_path: ""    # filled after Phase 4 SFT
+  lora_adapter_path: ""    # filled after Phase 4 SFT on a rented GPU
 
 embedding:
+  # NOTE: vestigial. The logic premise selector uses pure Jaccard + a
+  # hand-rolled stemmer (sentence-transformers was intentionally dropped
+  # on Day 4). Kept here only so a future embedding backend has a home.
   model: "sentence-transformers/all-MiniLM-L6-v2"
   device: "cpu"
   batch_size: 32
