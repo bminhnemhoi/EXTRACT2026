@@ -78,6 +78,29 @@ and `--task logic --with-llm`. Compare against
 qwen2.5-7b q4 on 6 GB works but is slow (~1-3 tok/s with CPU offload) —
 fine for a holdout pass, not for the live submission endpoint.
 
+### Path A-bis — measure for free via a Colab tunnel (recommended)
+
+`notebooks/serve_sft_colab.ipynb`: clean runtime → upload
+`exact_qwen25_7b_lora.zip` → Run all. It loads base + adapter (Unsloth
+4-bit), serves a minimal OpenAI `/v1/chat/completions` shim, and prints
+a `https://….trycloudflare.com` URL from the last cell (keep it
+running).
+
+Locally, point the eval at that tunnel and compare to the Day-12
+baseline:
+
+```powershell
+# configs/model.yaml: vllm_base_url: https://<tunnel>.trycloudflare.com/v1
+#                     backbone: exact-sft   (shim ignores the name)
+#                     mode: chat ; disable_thinking: false
+uv run python scripts\run_eval.py --task physics --with-llm --out outputs\eval\sft
+uv run python scripts\run_eval.py --task logic   --with-llm --out outputs\eval\sft
+```
+
+T4 inference is fast — both splits finish in ~15-25 min. This is the
+free way to learn whether SFT actually helps before paying for a
+submission GPU.
+
 ### Path B — production submission endpoint (rented GPU)
 
 For the actual competition endpoint, serve base + adapter on a rented
