@@ -33,6 +33,20 @@ class TestCanonicalProblems:
         assert math.isclose(result.answer_value, 10.0, rel_tol=1e-9)
         assert result.answer_unit == "volt"
 
+    def test_resultant_two_forces(self, solver: PhysicsSolver) -> None:
+        # LD015: law of cosines for vector addition of two given forces.
+        question = (
+            "Two electric forces with magnitudes of F1 = 5 N and F2 = 12 N "
+            "act at an angle of theta = 60 degree to each other. "
+            "Calculate the resultant force."
+        )
+        result = solver.solve(question)
+        assert result.success, result.fail_reason
+        assert result.formula_id == "resultant_two_forces"
+        # sqrt(25 + 144 + 2*5*12*cos60°) = sqrt(229) ≈ 15.13 N
+        assert math.isclose(result.answer_value, 15.13, rel_tol=1e-3)
+        assert result.answer_unit == "newton"
+
     def test_parallel_resistance(self, solver: PhysicsSolver) -> None:
         question = "Two resistors R1 = 4 ohm and R2 = 6 ohm are connected in parallel."
         result = solver.solve(question)

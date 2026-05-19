@@ -181,3 +181,15 @@ formulas:
       symbol: B
       unit: "tesla"
     expression: "1.25663706212e-6 * I / (2 * pi * r)"
+
+  resultant_two_forces:
+    topic: LD
+    description: "Resultant of two forces at an angle (law of cosines): R = sqrt(F1² + F2² + 2·F1·F2·cosθ)"
+    inputs:
+      F1:    { unit: "newton", aliases: ["force1", "first_force"] }
+      F2:    { unit: "newton", aliases: ["force2", "second_force"] }
+      theta: { unit: "degree", aliases: ["angle", "angle_between"] }
+    output:
+      symbol: R
+      unit: "newton"
+    expression: "sqrt(F1**2 + F2**2 + 2*F1*F2*cos(theta*pi/180))"

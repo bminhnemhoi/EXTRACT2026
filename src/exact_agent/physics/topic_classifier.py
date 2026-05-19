@@ -88,6 +88,20 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
         ("capacitance of", "capacitance c of", "find the capacitance", "what is the capacitance"),
         "capacitance_from_charge",
     ),
+    # Resultant of two GIVEN forces at an angle (law of cosines). Must beat
+    # the coulomb rules below — these problems hand you F1/F2 directly and
+    # never ask you to compute a force from charges.
+    (
+        (
+            "act at an angle",
+            "at an angle of",
+            "angle between the two forces",
+            "angle between them",
+            "two forces with magnitudes",
+            "resultant of the two forces",
+        ),
+        "resultant_two_forces",
+    ),
     # Coulomb / force between charges.
     (("coulomb",), "coulomb_force"),
     (("force between", "force acting on", "force on the charge"), "coulomb_force"),
@@ -128,6 +142,7 @@ _TARGET_WORDS: dict[str, frozenset[str]] = {
     "voltage_from_energy_capacitance": frozenset({"voltage", "potential difference"}),
     "capacitance_from_energy_voltage": frozenset({"capacitance"}),
     "coulomb_force": frozenset({"force", "newton"}),
+    "resultant_two_forces": frozenset({"resultant", "angle"}),
     "electric_field_point_charge": frozenset({"intensity", "strength", "magnitude"}),
     "ohm_law_voltage": frozenset({"voltage", "volt"}),
     "power_voltage_current": frozenset({"power", "watt"}),
