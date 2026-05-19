@@ -114,34 +114,41 @@ composition) — those are deferred CoT work, separate from SFT.
 
 ## 5. Troubleshooting
 
-**`AttributeError: 'NoneType' object has no attribute
-'convert_ids_to_tokens'`** in `unsloth_zoo/tokenizer_utils.py`
-`fix_untrained_tokens` (preceded by a `tokenizer` `TypeError`).
+**The golden rule: install ONLY `unsloth`, on a FRESH runtime.**
 
-Real root cause: Colab now ships **transformers 5.x**, which renamed
-`Trainer.tokenizer` → `processing_class`. This build of `unsloth_zoo`
-still reads the old attribute, so `fix_untrained_tokens` gets `None`
-**no matter how you pass the tokenizer to SFTTrainer** (`tokenizer=`
-errors; dropping it → None; `processing_class=` still → None because
-the bug is *inside* unsloth_zoo, not your call).
+Every failure chain seen on this notebook —
+`Trainer ... unexpected keyword 'tokenizer'` →
+`fix_untrained_tokens: NoneType ... convert_ids_to_tokens` →
+`tokenizers>=0.20,<0.21 required, found 0.22.2` — had the **same root
+cause**: extra `pip install` lines (pinned `trl`/`transformers`,
+especially with `--no-deps`) layered on top of Unsloth's own pinned
+stack, producing a half-consistent environment.
 
-The only reliable fix is to **pin the pre-5.x stack** the installed
-`unsloth_zoo` was written against — the notebook's install cell now
-force-reinstalls `transformers==4.46.3 trl==0.12.2 datasets==3.1.0
-peft==0.13.2 accelerate==1.1.1`. **You must Runtime → Restart session
-after the install cell, then Run all** — a kernel that already imported
-transformers 5.x will not pick up the downgrade otherwise (this is the
-single most common reason the error "comes back"). With 4.46/0.12,
-`SFTTrainer(model=model, tokenizer=tokenizer, …)` works and
-`fix_untrained_tokens` finds the tokenizer.
+`pip install unsloth` already pins a mutually-consistent
+torch/transformers/tokenizers/trl/peft/bnb set tested on current Colab.
+Adding anything next to it — or running it over a runtime already
+polluted by earlier attempts — is what breaks it. `--no-deps` is
+especially harmful: it pins one package but blocks the matching
+`tokenizers`/etc., yielding the 0.22.2 conflict above.
 
-If a pinned version 404s on PyPI later, bump to the nearest available
-`transformers 4.46.x` / `trl 0.12.x` — stay on the 4.x line.
+Fix:
 
-**Version soup in general**: don't `pip install` a pinned `trl` /
-`transformers` next to Unsloth — let `pip install unsloth` resolve one
-consistent stack (cell 1). Mixing an old `trl` with Colab's
-`transformers` 5.x is the root cause of the `tokenizer` error.
+1. Runtime → **Disconnect and delete runtime** (not just *Restart* — a
+   polluted runtime has half-downgraded wheels that pip-on-top will not
+   repair).
+2. Reopen the notebook fresh. The install cell is just `pip install -q
+   unsloth` — **do not add any other pip line**.
+3. Run all. Cell 5 auto-detects whether the resolved stack wants
+   `tokenizer=` or `processing_class=` (via `inspect.signature`), so it
+   works regardless of which versions Unsloth pinned that day.
+
+**`warmup_ratio is deprecated`** and `You passed a max_seq_length /
+dataset_text_field argument…` — warnings only, safe to ignore; the run
+proceeds.
+
+**OOM on T4**: drop `per_device_train_batch_size` to 1 and raise
+`gradient_accumulation_steps` to 16 (same effective batch), or set
+`MAX_SEQ_LEN = 1536` in cell 3.
 
 **`warmup_ratio is deprecated`** and `You passed a max_seq_length /
 dataset_text_field argument…` — warnings only, safe to ignore; the run
