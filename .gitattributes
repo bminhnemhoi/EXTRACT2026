@@ -1,0 +1,11 @@
+# The deploy scripts and container files run on the Linux GPU host — a CRLF
+# shebang (`/usr/bin/env bash\r`) is a "bad interpreter" failure there.
+# Pin them to LF regardless of any cloner's core.autocrlf. (Targeted, not a
+# repo-wide renormalize — submission-time risk > benefit.)
+*.sh           text eol=lf
+Dockerfile*    text eol=lf
+*.yml          text eol=lf
+*.yaml         text eol=lf
+
+# Built submission artifact: never eol-convert or text-diff it.
+*.pdf          binary
