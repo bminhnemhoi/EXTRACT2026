@@ -114,15 +114,29 @@ composition) — those are deferred CoT work, separate from SFT.
 
 ## 5. Troubleshooting
 
-**`TypeError: ... unexpected keyword argument 'tokenizer'`** then, if you
-only delete it, **`AttributeError: 'NoneType' object has no attribute
-'convert_ids_to_tokens'`** (cell 5, both fixed in the committed
-notebook). transformers 5.x **renamed** `Trainer(tokenizer=...)` to
-`processing_class=...` — it was *not* removed. Dropping it entirely
-makes Unsloth's `fix_untrained_tokens` receive `tokenizer=None` →
-the AttributeError. The fix is `SFTTrainer(model=model,
-processing_class=tokenizer, ...)`, with `dataset_text_field` +
-`max_seq_length` in `SFTConfig`.
+**`AttributeError: 'NoneType' object has no attribute
+'convert_ids_to_tokens'`** in `unsloth_zoo/tokenizer_utils.py`
+`fix_untrained_tokens` (preceded by a `tokenizer` `TypeError`).
+
+Real root cause: Colab now ships **transformers 5.x**, which renamed
+`Trainer.tokenizer` → `processing_class`. This build of `unsloth_zoo`
+still reads the old attribute, so `fix_untrained_tokens` gets `None`
+**no matter how you pass the tokenizer to SFTTrainer** (`tokenizer=`
+errors; dropping it → None; `processing_class=` still → None because
+the bug is *inside* unsloth_zoo, not your call).
+
+The only reliable fix is to **pin the pre-5.x stack** the installed
+`unsloth_zoo` was written against — the notebook's install cell now
+force-reinstalls `transformers==4.46.3 trl==0.12.2 datasets==3.1.0
+peft==0.13.2 accelerate==1.1.1`. **You must Runtime → Restart session
+after the install cell, then Run all** — a kernel that already imported
+transformers 5.x will not pick up the downgrade otherwise (this is the
+single most common reason the error "comes back"). With 4.46/0.12,
+`SFTTrainer(model=model, tokenizer=tokenizer, …)` works and
+`fix_untrained_tokens` finds the tokenizer.
+
+If a pinned version 404s on PyPI later, bump to the nearest available
+`transformers 4.46.x` / `trl 0.12.x` — stay on the 4.x line.
 
 **Version soup in general**: don't `pip install` a pinned `trl` /
 `transformers` next to Unsloth — let `pip install unsloth` resolve one
