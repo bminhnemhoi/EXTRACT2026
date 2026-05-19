@@ -29,7 +29,10 @@ from dataclasses import dataclass
 import z3
 
 from exact_agent.logic.fol_parser import parse_fol
-from exact_agent.logic.types import Atom, Rule
+from exact_agent.logic.types import Atom, Comparison, Rule
+
+_Item = "Atom | Comparison | Rule"
+_Lit = "Atom | Comparison"
 
 
 @dataclass(frozen=True)
@@ -48,97 +51,133 @@ class Z3VerificationResult:
     skipped_premises: int
 
 
+def _bound_vars(item: Atom | Comparison | Rule) -> set[str]:
+    return set(item.quantified_vars) if isinstance(item, Rule) else set()
+
+
 def _is_variable(token: str) -> bool:
-    """Heuristic: lowercase, length 1 → bound variable. Anything else → constant."""
+    """Heuristic for a free/bound logic variable: single lowercase letter."""
     return len(token) == 1 and token.islower()
 
 
-def _collect_constants(items: list[Atom | Rule]) -> set[str]:
+def _lits(item: Atom | Comparison | Rule) -> tuple[Atom | Comparison, ...]:
+    if isinstance(item, Rule):
+        return (*item.body, item.head)
+    return (item,)
+
+
+def _collect_constants(items: list[Atom | Comparison | Rule]) -> set[str]:
     constants: set[str] = set()
-
-    def add_atom(atom: Atom) -> None:
-        for arg in atom.args:
-            if not _is_variable(arg):
-                constants.add(arg)
-
     for item in items:
-        if isinstance(item, Atom):
-            add_atom(item)
-        else:  # Rule
-            for body_atom in item.body:
-                add_atom(body_atom)
-            add_atom(item.head)
+        bound = _bound_vars(item)
+        for lit in _lits(item):
+            for arg in lit.args:
+                if arg in bound or _is_variable(arg):
+                    continue
+                constants.add(arg)
     return constants
 
 
-def _arity_for(predicate: str, items: list[Atom | Rule]) -> int:
-    """Infer predicate arity from the first occurrence in any premise."""
+def _arity_for(name: str, kind: str, items: list[Atom | Comparison | Rule]) -> int:
+    """Infer arity of a Bool predicate (kind='pred') or Real func (kind='cmp')."""
     for item in items:
-        atoms = (item,) if isinstance(item, Atom) else (*item.body, item.head)
-        for atom in atoms:
-            if atom.predicate == predicate:
-                return len(atom.args)
+        for lit in _lits(item):
+            if kind == "pred" and isinstance(lit, Atom) and lit.predicate == name:
+                return len(lit.args)
+            if kind == "cmp" and isinstance(lit, Comparison) and lit.func == name:
+                return len(lit.args)
     return 1
 
 
 def _build_environment(
-    parsed_items: list[Atom | Rule],
-    extras: list[Atom | Rule] | None = None,
-) -> tuple[z3.SortRef, dict[str, z3.FuncDeclRef], dict[str, z3.ExprRef]]:
-    """Create the shared sort + predicate functions + ground constants.
-
-    ``extras`` is the (parsed) claim plus any auxiliaries; we want to make
-    sure their predicates and constants are also registered before
-    asserting.
-    """
+    parsed_items: list[Atom | Comparison | Rule],
+    extras: list[Atom | Comparison | Rule] | None = None,
+) -> tuple[
+    z3.SortRef,
+    dict[str, z3.FuncDeclRef],
+    dict[str, z3.FuncDeclRef],
+    dict[str, z3.ExprRef],
+]:
+    """Shared Entity sort + Bool predicates + Real comparison-functions +
+    ground constants. ``extras`` (the parsed claim) is registered too so
+    its symbols exist before asserting."""
     Entity = z3.DeclareSort("Entity")
-    everything: list[Atom | Rule] = list(parsed_items)
+    everything: list[Atom | Comparison | Rule] = list(parsed_items)
     if extras:
         everything.extend(extras)
 
-    # Predicates → Z3 functions.
-    predicates: dict[str, z3.FuncDeclRef] = {}
-    seen_preds: set[str] = set()
+    preds: set[str] = set()
+    cmps: set[str] = set()
     for item in everything:
-        atoms = (item,) if isinstance(item, Atom) else (*item.body, item.head)
-        for atom in atoms:
-            seen_preds.add(atom.predicate)
-    for predicate in sorted(seen_preds):
-        arity = _arity_for(predicate, everything)
-        predicates[predicate] = z3.Function(predicate, *([Entity] * arity), z3.BoolSort())
+        for lit in _lits(item):
+            if isinstance(lit, Comparison):
+                cmps.add(lit.func)
+            else:
+                preds.add(lit.predicate)
 
-    # Constants → Z3 consts.
-    constants_map: dict[str, z3.ExprRef] = {}
-    for name in sorted(_collect_constants(everything)):
-        constants_map[name] = z3.Const(name, Entity)
+    predicates = {
+        p: z3.Function(p, *([Entity] * _arity_for(p, "pred", everything)), z3.BoolSort())
+        for p in sorted(preds)
+    }
+    cmp_funcs = {
+        c: z3.Function(c, *([Entity] * _arity_for(c, "cmp", everything)), z3.RealSort())
+        for c in sorted(cmps)
+    }
+    constants_map: dict[str, z3.ExprRef] = {
+        name: z3.Const(name, Entity) for name in sorted(_collect_constants(everything))
+    }
+    return Entity, predicates, cmp_funcs, constants_map
 
-    return Entity, predicates, constants_map
+
+_OP_FN = {
+    "=": lambda a, b: a == b,
+    "!=": lambda a, b: a != b,
+    ">=": lambda a, b: a >= b,
+    "<=": lambda a, b: a <= b,
+    ">": lambda a, b: a > b,
+    "<": lambda a, b: a < b,
+}
 
 
-def _atom_to_z3(
-    atom: Atom,
+def _args_to_z3(
+    raw_args: tuple[str, ...],
     *,
     Entity: z3.SortRef,
-    predicates: dict[str, z3.FuncDeclRef],
     constants_map: dict[str, z3.ExprRef],
-    binders: dict[str, z3.ExprRef] | None = None,
-) -> z3.BoolRef:
-    func = predicates[atom.predicate]
-    args: list[z3.ExprRef] = []
-    for raw in atom.args:
-        if _is_variable(raw) and binders is not None and raw in binders:
-            args.append(binders[raw])
+    binders: dict[str, z3.ExprRef] | None,
+) -> list[z3.ExprRef]:
+    out: list[z3.ExprRef] = []
+    for raw in raw_args:
+        if binders is not None and raw in binders:
+            out.append(binders[raw])
         elif _is_variable(raw):
-            # Free variable — promote to a fresh constant (rare; normally
-            # bound by the rule). This keeps the solver from crashing on
-            # malformed inputs.
-            args.append(z3.Const(f"_free_{raw}", Entity))
+            out.append(z3.Const(f"_free_{raw}", Entity))
         else:
             if raw not in constants_map:
                 constants_map[raw] = z3.Const(raw, Entity)
-            args.append(constants_map[raw])
+            out.append(constants_map[raw])
+    return out
+
+
+def _lit_to_z3(
+    lit: Atom | Comparison,
+    *,
+    Entity: z3.SortRef,
+    predicates: dict[str, z3.FuncDeclRef],
+    cmp_funcs: dict[str, z3.FuncDeclRef],
+    constants_map: dict[str, z3.ExprRef],
+    binders: dict[str, z3.ExprRef] | None = None,
+) -> z3.BoolRef:
+    if isinstance(lit, Comparison):
+        fn = cmp_funcs[lit.func]
+        args = _args_to_z3(lit.args, Entity=Entity, constants_map=constants_map, binders=binders)
+        lhs = fn(*args) if args else fn()
+        return _OP_FN[lit.op](lhs, z3.RealVal(lit.value))
+
+    func = predicates[lit.predicate]
+    args = _args_to_z3(lit.args, Entity=Entity, constants_map=constants_map, binders=binders)
     expr = func(*args) if args else func()
-    return z3.Not(expr) if atom.polarity == "neg" else expr
+    return z3.Not(expr) if lit.polarity == "neg" else expr
 
 
 def _rule_to_z3(
@@ -146,34 +185,38 @@ def _rule_to_z3(
     *,
     Entity: z3.SortRef,
     predicates: dict[str, z3.FuncDeclRef],
+    cmp_funcs: dict[str, z3.FuncDeclRef],
     constants_map: dict[str, z3.ExprRef],
 ) -> z3.BoolRef:
-    binder = z3.Const(rule.quantified_var, Entity)
-    binders = {rule.quantified_var: binder}
+    binders = {v: z3.Const(v, Entity) for v in rule.quantified_vars}
     body_terms = [
-        _atom_to_z3(
+        _lit_to_z3(
             a,
             Entity=Entity,
             predicates=predicates,
+            cmp_funcs=cmp_funcs,
             constants_map=constants_map,
             binders=binders,
         )
         for a in rule.body
     ]
-    head_term = _atom_to_z3(
+    head_term = _lit_to_z3(
         rule.head,
         Entity=Entity,
         predicates=predicates,
+        cmp_funcs=cmp_funcs,
         constants_map=constants_map,
         binders=binders,
     )
     body_conj = body_terms[0] if len(body_terms) == 1 else z3.And(*body_terms)
-    return z3.ForAll([binder], z3.Implies(body_conj, head_term))
+    return z3.ForAll(list(binders.values()), z3.Implies(body_conj, head_term))
 
 
-def _parse_premises(premises_fol: list[str]) -> tuple[list[Atom | Rule], list[int], list[int]]:
+def _parse_premises(
+    premises_fol: list[str],
+) -> tuple[list[Atom | Comparison | Rule], list[int], list[int]]:
     """Parse every FOL premise; return (parsed, parsed_idx, skipped_idx)."""
-    parsed: list[Atom | Rule] = []
+    parsed: list[Atom | Comparison | Rule] = []
     parsed_idx: list[int] = []
     skipped_idx: list[int] = []
     for i, raw in enumerate(premises_fol, start=1):
@@ -211,43 +254,33 @@ def verify_with_z3(
         )
 
     parsed_items, parsed_idx, skipped_idx = _parse_premises(premises_fol)
-    Entity, predicates, constants_map = _build_environment(parsed_items, extras=[parsed_claim])
+    Entity, predicates, cmp_funcs, constants_map = _build_environment(
+        parsed_items, extras=[parsed_claim]
+    )
+
+    def _encode(item: Atom | Comparison | Rule) -> z3.BoolRef:
+        if isinstance(item, Rule):
+            return _rule_to_z3(
+                item,
+                Entity=Entity,
+                predicates=predicates,
+                cmp_funcs=cmp_funcs,
+                constants_map=constants_map,
+            )
+        return _lit_to_z3(
+            item,
+            Entity=Entity,
+            predicates=predicates,
+            cmp_funcs=cmp_funcs,
+            constants_map=constants_map,
+        )
 
     def assert_theory(solver: z3.Solver) -> None:
         for item in parsed_items:
-            if isinstance(item, Atom):
-                solver.add(
-                    _atom_to_z3(
-                        item,
-                        Entity=Entity,
-                        predicates=predicates,
-                        constants_map=constants_map,
-                    )
-                )
-            else:
-                solver.add(
-                    _rule_to_z3(
-                        item,
-                        Entity=Entity,
-                        predicates=predicates,
-                        constants_map=constants_map,
-                    )
-                )
+            solver.add(_encode(item))
 
     def encode_claim() -> z3.BoolRef:
-        if isinstance(parsed_claim, Atom):
-            return _atom_to_z3(
-                parsed_claim,
-                Entity=Entity,
-                predicates=predicates,
-                constants_map=constants_map,
-            )
-        return _rule_to_z3(
-            parsed_claim,
-            Entity=Entity,
-            predicates=predicates,
-            constants_map=constants_map,
-        )
+        return _encode(parsed_claim)
 
     claim_expr = encode_claim()
     supports = tuple(parsed_idx)

@@ -1,166 +1,227 @@
-"""Parse the Unicode first-order-logic strings shipped with the dataset.
+"""Parse the Unicode/ASCII first-order-logic strings shipped with the dataset.
 
-The cleaned dataset uses a stable subset of FOL:
+Covers (Day-14 expansion):
 
-* Universal rules: ``∀x (body → head)``
-* Conjunctive body: ``(A(x) ∧ B(x) ∧ C(x))``
-* Negation: ``¬P(x)``
-* Ground facts: ``P(John)`` or ``¬P(John)``
+* Universal rules, single OR nested / multi-variable, both syntaxes:
+  ``∀x (body → head)``, ``∀x ∀y (...)``, ``∀x (∀y ...)``,
+  ``∀x (ForAll(d, ...))``, ``ForAll(a, ForAll(b, ForAll(c, ...)))``.
+* Conjunctive bodies ``(A(x) ∧ B(x))``; negation ``¬P(x)``.
+* **Comparison / arithmetic literals** ``f(args) OP n`` with
+  ``OP ∈ {=, ≠, ≥, ≤, >, <}`` (and ascii ``== != >= <= > <``), as a
+  body conjunct, a head, or a bare ground fact (``dur(Alex) = 8``).
+* Ground (possibly negated) atoms.
 
-The parser is intentionally regex-driven — robust enough for the 90%+ of
-premises that conform to this shape, and graceful (returns ``None``) on
-the rest. Day-4 baseline only consumes premises that parse cleanly; the
-LLM fallback in Phase 4 will handle the odd ones.
+Still out of scope (returns ``None``): ∃ / Exists, disjunction ∨,
+biconditional ↔. The Z3 backend consumes whatever parses; unparsed
+premises are simply skipped (theory stays sound, just weaker).
 """
 
 from __future__ import annotations
 
 import re
 
-from exact_agent.logic.types import Atom, Rule
+from exact_agent.logic.types import Atom, Comparison, Rule
 
 # ---------------------------------------------------------------------------
-# Atoms
+# Atoms & comparisons
 # ---------------------------------------------------------------------------
 
-# Predicate followed by parenthesised, comma-separated args.
 _ATOM_RE = re.compile(
     r"""
-    (?P<neg>¬\s*)?                         # optional negation
-    (?P<name>[A-Za-z_][A-Za-z0-9_]*)       # predicate name
+    (?P<neg>¬\s*)?
+    (?P<name>[A-Za-z_][A-Za-z0-9_]*)
     \s*\(\s*
-    (?P<args>[^()]*?)                       # args (no nested parens)
+    (?P<args>[^()]*?)
     \s*\)
     """,
     re.VERBOSE,
 )
 
+# f(args) OP number   — unicode or ascii operators.
+_CMP_RE = re.compile(
+    r"""
+    ^\s*
+    (?P<name>[A-Za-z_][A-Za-z0-9_]*)
+    \s*\(\s*(?P<args>[^()]*?)\s*\)\s*
+    (?P<op>≥|≤|≠|>=|<=|==|!=|=|>|<)\s*
+    (?P<num>[-+]?\d+(?:\.\d+)?(?:\s*[×x*]\s*10\s*\^?\s*[-+]?\d+|[eE][-+]?\d+)?)
+    \s*$
+    """,
+    re.VERBOSE,
+)
 
-def parse_atom(text: str) -> Atom | None:
-    """Parse a single atom string (possibly negated)."""
+_OP_CANON = {
+    "≥": ">=",
+    "≤": "<=",
+    "≠": "!=",
+    "==": "=",
+    "=": "=",
+    ">": ">",
+    "<": "<",
+    ">=": ">=",
+    "<=": "<=",
+    "!=": "!=",
+}
+
+
+def _parse_num(raw: str) -> float:
+    s = raw.strip().replace(" ", "")
+    s = re.sub(r"[×x*]10\^?", "e", s)
+    return float(s)
+
+
+def parse_atom(text: str) -> Atom | Comparison | None:
+    """Parse one literal: a predicate atom or a comparison ``f(..) OP n``."""
     text = text.strip()
     if not text:
         return None
-    match = _ATOM_RE.fullmatch(text)
-    if not match:
+
+    cmp_m = _CMP_RE.match(text)
+    if cmp_m:
+        args_raw = cmp_m.group("args").strip()
+        args = tuple(a.strip() for a in args_raw.split(",")) if args_raw else ()
+        try:
+            value = _parse_num(cmp_m.group("num"))
+        except ValueError:
+            return None
+        return Comparison(
+            func=cmp_m.group("name"),
+            args=args,
+            op=_OP_CANON[cmp_m.group("op")],
+            value=value,
+        )
+
+    m = _ATOM_RE.fullmatch(text)
+    if not m:
         return None
-    args_raw = match.group("args").strip()
-    args: tuple[str, ...] = ()
-    if args_raw:
-        args = tuple(arg.strip() for arg in args_raw.split(","))
+    args_raw = m.group("args").strip()
+    args = tuple(a.strip() for a in args_raw.split(",")) if args_raw else ()
     return Atom(
-        predicate=match.group("name"),
+        predicate=m.group("name"),
         args=args,
-        polarity="neg" if match.group("neg") else "pos",
+        polarity="neg" if m.group("neg") else "pos",
     )
 
 
 # ---------------------------------------------------------------------------
-# Bodies
+# Paren-aware splitting
 # ---------------------------------------------------------------------------
+
+
+def _strip_balanced_parens(text: str) -> str:
+    text = text.strip()
+    while text.startswith("(") and text.endswith(")"):
+        depth = 0
+        ok = True
+        for i, ch in enumerate(text):
+            depth += ch == "("
+            depth -= ch == ")"
+            if depth == 0 and i != len(text) - 1:
+                ok = False
+                break
+        if not ok:
+            break
+        text = text[1:-1].strip()
+    return text
+
+
+def _split_top(text: str, sep: str) -> list[str]:
+    """Split ``text`` at top-level (depth-0) occurrences of ``sep``."""
+    out: list[str] = []
+    cur: list[str] = []
+    depth = 0
+    for ch in text:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        if depth == 0 and ch == sep:
+            out.append("".join(cur).strip())
+            cur = []
+        else:
+            cur.append(ch)
+    tail = "".join(cur).strip()
+    if tail:
+        out.append(tail)
+    return out
 
 
 def _split_conjuncts(body_text: str) -> list[str]:
-    """Split a conjunction string at top-level ``∧``.
-
-    Respects parenthesis nesting. Handles the leading/trailing parens that
-    the dataset typically wraps bodies in.
-    """
-    text = body_text.strip()
-    if text.startswith("(") and text.endswith(")"):
-        # Strip outer parens only if balanced.
-        depth = 0
-        balanced_outer = True
-        for i, ch in enumerate(text):
-            if ch == "(":
-                depth += 1
-            elif ch == ")":
-                depth -= 1
-                if depth == 0 and i != len(text) - 1:
-                    balanced_outer = False
-                    break
-        if balanced_outer:
-            text = text[1:-1].strip()
-
-    conjuncts: list[str] = []
-    current: list[str] = []
-    depth = 0
-    i = 0
-    while i < len(text):
-        ch = text[i]
-        if ch == "(":
-            depth += 1
-            current.append(ch)
-        elif ch == ")":
-            depth -= 1
-            current.append(ch)
-        elif depth == 0 and ch == "∧":
-            conjuncts.append("".join(current).strip())
-            current = []
-        else:
-            current.append(ch)
-        i += 1
-    tail = "".join(current).strip()
-    if tail:
-        conjuncts.append(tail)
-    return conjuncts
+    return _split_top(_strip_balanced_parens(body_text), "∧")
 
 
 # ---------------------------------------------------------------------------
-# Rules
+# Universal-quantifier peeling (handles both syntaxes + nesting)
 # ---------------------------------------------------------------------------
 
-_RULE_RE = re.compile(
-    r"""
-    ∀\s*(?P<var>[A-Za-z])    # quantified variable
-    \s*\(?\s*
-    (?P<body>.+?)
-    \s*→\s*
-    (?P<head>.+?)
-    \s*\)?\s*$
-    """,
-    re.VERBOSE | re.DOTALL,
-)
+_UNI_UNICODE = re.compile(r"^∀\s*(?P<var>[A-Za-z]\w*)\s*")
+_UNI_FORALL = re.compile(r"^ForAll\s*\(\s*(?P<var>[A-Za-z]\w*)\s*,\s*", re.IGNORECASE)
 
 
-def parse_fol(text: str, premise_id: str) -> Atom | Rule | None:  # noqa: PLR0911
-    """Parse a single FOL line into either a ground :class:`Atom` (fact)
-    or a :class:`Rule` (universal Horn-like rule).
+def _peel_universals(text: str) -> tuple[list[str], str] | None:
+    """Strip leading ∀/ForAll layers. Returns (vars, matrix) or None if an
+    unsupported quantifier (∃/Exists) is encountered."""
+    vars_: list[str] = []
+    text = text.strip()
+    while True:
+        text = _strip_balanced_parens(text).strip()
+        if text.startswith("∃") or re.match(r"^Exists\s*\(", text, re.IGNORECASE):
+            return None
+        m = _UNI_UNICODE.match(text)
+        if m:
+            vars_.append(m.group("var"))
+            text = text[m.end() :].strip()
+            continue
+        m = _UNI_FORALL.match(text)
+        if m:
+            vars_.append(m.group("var"))
+            rest = text[m.end() :].strip()
+            # Drop the single trailing ')' that closes this ForAll(...).
+            if rest.endswith(")"):
+                rest = rest[:-1].strip()
+            text = rest
+            continue
+        break
+    return vars_, text
 
-    Returns ``None`` for anything we can't handle (∃ quantifiers,
-    disjunctive heads, malformed syntax).
-    """
+
+def parse_fol(text: str, premise_id: str) -> Atom | Comparison | Rule | None:  # noqa: PLR0911
+    """Parse one FOL line into a ground Atom/Comparison (fact) or a Rule."""
     raw = text.strip()
     if not raw:
         return None
+    if raw.startswith("∃") or re.match(r"^Exists\s*\(", raw, re.IGNORECASE):
+        return None
+    if "∨" in raw or "↔" in raw:
+        return None  # disjunction / biconditional not supported
 
-    # Universal rule?
-    if raw.startswith("∀"):
-        match = _RULE_RE.fullmatch(raw)
-        if match is None:
+    is_universal = raw.startswith("∀") or re.match(r"^ForAll\s*\(", raw, re.IGNORECASE)
+    if is_universal:
+        peeled = _peel_universals(raw)
+        if peeled is None:
             return None
-        var = match.group("var")
-        body_raw = match.group("body").strip()
-        head_raw = match.group("head").strip()
-        # Body may still be wrapped in parens. _split_conjuncts strips them.
-        body_atoms = []
-        for conj in _split_conjuncts(body_raw):
-            atom = parse_atom(conj)
-            if atom is None:
+        bound_vars, matrix = peeled
+        if not bound_vars:
+            return None
+        matrix = _strip_balanced_parens(matrix)
+        sides = _split_top(matrix, "→")
+        if len(sides) != 2:
+            return None  # need exactly body → head
+        body_atoms: list[Atom | Comparison] = []
+        for conj in _split_conjuncts(sides[0]):
+            a = parse_atom(conj)
+            if a is None:
                 return None
-            body_atoms.append(atom)
-        head_atom = parse_atom(head_raw)
-        if head_atom is None:
+            body_atoms.append(a)
+        head = parse_atom(_strip_balanced_parens(sides[1]))
+        if head is None or not body_atoms:
             return None
         return Rule(
-            quantified_var=var,
+            quantified_vars=tuple(bound_vars),
             body=tuple(body_atoms),
-            head=head_atom,
+            head=head,
             source_premise_id=premise_id,
         )
 
-    if raw.startswith("∃"):
-        return None  # not supported in Day-4 baseline
-
-    # Otherwise treat as a ground (possibly negated) atom.
+    # Ground fact: a (possibly negated) atom or a comparison.
     return parse_atom(raw)

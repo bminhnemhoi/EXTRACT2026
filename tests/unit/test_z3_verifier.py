@@ -56,3 +56,37 @@ class TestZ3Verifier:
         result = verify_with_z3(["Student(Alice)"], "this is not FOL")
         assert result.verdict == "Unknown"
         assert "did not parse" in result.rationale
+
+
+class TestMultiVarAndComparison:
+    def test_multivar_transitivity(self) -> None:
+        premises = [
+            "∀a (ForAll(b, ForAll(c, (higher(a, b) ∧ higher(b, c)) → higher(a, c))))",
+            "higher(PhD, MSc)",
+            "higher(MSc, BA)",
+        ]
+        assert verify_with_z3(premises, "higher(PhD, BA)").verdict == "Yes"
+
+    def test_comparison_threshold_entails(self) -> None:
+        premises = [
+            "membership_duration(Alex) = 8",
+            "∀x ((membership_duration(x) ≥ 6) → eligible_trainer(x))",
+        ]
+        assert verify_with_z3(premises, "eligible_trainer(Alex)").verdict == "Yes"
+
+    def test_below_threshold_not_entailed(self) -> None:
+        premises = [
+            "membership_duration(Bob) = 4",
+            "∀x ((membership_duration(x) ≥ 6) → eligible_trainer(x))",
+        ]
+        # No rule forces eligibility at dur=4 → must not over-conclude Yes.
+        assert verify_with_z3(premises, "eligible_trainer(Bob)").verdict != "Yes"
+
+    def test_single_var_still_works(self) -> None:
+        # Regression: the pre-existing single-var path is unaffected.
+        premises = [
+            "∀x (Student(x) ∧ PassedExam(x) → ReceivesCredit(x))",
+            "Student(Alice)",
+            "PassedExam(Alice)",
+        ]
+        assert verify_with_z3(premises, "ReceivesCredit(Alice)").verdict == "Yes"

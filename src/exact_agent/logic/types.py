@@ -45,22 +45,52 @@ class Atom:
 
 
 @dataclass(frozen=True)
-class Rule:
-    """A universally quantified Horn-ish rule.
+class Comparison:
+    """An arithmetic/comparison literal: ``f(args) OP value``.
 
-    Bodies are conjunctions of atoms; head is a single atom (possibly
-    negated). Disjunctive heads are uncommon in the dataset and ignored
-    by the Day-4 baseline.
+    The dataset uses these heavily for threshold reasoning, e.g.
+    ``∀x ((membership_duration(x) ≥ 6) → eligible_trainer(x))`` or the
+    ground fact ``membership_duration(Alex) = 8``. The surface chainer
+    cannot evaluate ``8 ≥ 6``; only the Z3 backend (Real-valued
+    functions) can, which is exactly why these were dead weight before.
     """
 
-    quantified_var: str  # 'x', 'c', 'y' ...
-    body: tuple[Atom, ...]
-    head: Atom
+    func: str
+    args: tuple[str, ...]
+    op: str  # one of: = != >= <= > <
+    value: float
+
+    def __str__(self) -> str:
+        return f"{self.func}({', '.join(self.args)}) {self.op} {self.value:g}"
+
+
+# A body conjunct / head can be a boolean predicate atom or a comparison.
+Literal_ = "Atom | Comparison"
+
+
+@dataclass(frozen=True)
+class Rule:
+    """A (possibly multi-variable) universally quantified Horn-ish rule.
+
+    Bodies are conjunctions of atoms/comparisons; head is a single
+    atom/comparison (possibly negated). Disjunctive heads and ∃ are
+    ignored by the parser (returns ``None``).
+    """
+
+    quantified_vars: tuple[str, ...]  # ('x',) or ('x', 'd') or ('a','b','c')
+    body: tuple[Atom | Comparison, ...]
+    head: Atom | Comparison
     source_premise_id: str  # e.g. "P1"
+
+    @property
+    def quantified_var(self) -> str:
+        """Back-compat: the first bound variable."""
+        return self.quantified_vars[0] if self.quantified_vars else "x"
 
     def __str__(self) -> str:
         body_str = " ∧ ".join(str(a) for a in self.body)
-        return f"∀{self.quantified_var} ({body_str} → {self.head})"
+        qs = "".join(f"∀{v}" for v in self.quantified_vars)
+        return f"{qs} ({body_str} → {self.head})"
 
 
 @dataclass(frozen=True)
