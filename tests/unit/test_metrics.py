@@ -88,6 +88,29 @@ class TestQuantityMatch:
         assert not quantity_match(None, "coulomb", "0.6", "nC")
         assert not quantity_match(5e-10, "coulomb", None, "nC")
 
+    def test_round_aware_recovers_nl015(self) -> None:
+        # √(2·0.54e-3/0.12) = 0.094868 A; gold "0.09" (rounded to 2 dp).
+        # rel_tol (5.4% off) fails, stated-precision round-aware passes.
+        assert quantity_match(0.094868, "ampere", "0.09", "A")
+
+    def test_round_aware_raw_path_two_decimals(self) -> None:
+        assert quantity_match(1.4549, "", "1.45", "")  # raw path, 2 dp
+
+    def test_round_aware_does_not_rescue_genuinely_wrong(self) -> None:
+        # TD397: 0.08 C vs gold 26.55 nC — round(8e7, 2) != 26.55.
+        assert not quantity_match(0.08, "coulomb", "26.55", "nC")
+        assert not quantity_match(3.0, "volt", "9.00", "V")
+
+    def test_integer_gold_not_loosened(self) -> None:
+        # Gold "40" has 0 decimals → round-aware disabled; 41 must fail.
+        assert not quantity_match(41.0, "ohm", "40", "ohm")
+        assert quantity_match(40.0, "ohm", "40", "ohm")
+
+    def test_scientific_gold_uses_rel_tol_only(self) -> None:
+        # "4 × 10^-6" is not a fixed-point decimal → no round-aware.
+        assert quantity_match(4.0e-6, "newton", "4 × 10^-6", "N")
+        assert not quantity_match(4.4e-6, "newton", "4 × 10^-6", "N")
+
 
 class TestUnitMatch:
     @pytest.mark.parametrize(

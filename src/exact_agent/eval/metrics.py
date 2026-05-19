@@ -91,6 +91,49 @@ def numeric_match(
     return math.isclose(p, e, rel_tol=rel_tol, abs_tol=abs_tol)
 
 
+# A plain fixed-point decimal gold ("0.09", "14.83"); scientific / messy
+# golds ("1.6 × 10^-7", "0.3; 1.5 cm") are excluded from round-aware
+# acceptance and rely on the relative-tolerance path only.
+_FIXED_DECIMAL_RE = re.compile(r"^[-+]?\d+\.(\d+)$")
+
+
+def _gold_decimals(exp_value: str | float | None) -> int | None:
+    """Number of decimal places the gold is *stated* at, or None.
+
+    The dataset frequently instructs "round the result to two decimal
+    places" and ships the rounded value as gold. Returns the decimal
+    count only for a clean fixed-point string so we don't loosen
+    integer or scientific golds.
+    """
+    if not isinstance(exp_value, str):
+        return None
+    m = _FIXED_DECIMAL_RE.match(exp_value.strip().replace(",", ""))
+    return len(m.group(1)) if m else None
+
+
+def _values_agree(
+    pred: float,
+    gold: float,
+    gold_raw: str | float | None,
+    *,
+    rel_tol: float,
+    abs_tol: float,
+) -> bool:
+    """Relative-tolerance match OR stated-precision (round-aware) match.
+
+    Round-aware only fires when the gold is a fixed-point decimal with
+    >=1 decimal place — i.e. an explicitly rounded value. A prediction
+    that rounds to the gold at the gold's own precision is correct by
+    construction (the true value is only known to that precision).
+    """
+    if math.isclose(pred, gold, rel_tol=rel_tol, abs_tol=abs_tol):
+        return True
+    d = _gold_decimals(gold_raw)
+    if d is not None and d >= 1:
+        return round(pred, d) == round(gold, d)
+    return False
+
+
 def quantity_match(
     pred_value: str | float | None,
     pred_unit: str | None,
@@ -109,9 +152,10 @@ def quantity_match(
     back to the legacy raw comparison (:func:`numeric_match` semantics)
     so the metric never regresses on unit-free answers.
 
-    Comparing in the gold's natural unit (magnitude ~1) instead of raw
-    SI (magnitude ~1e-10) also removes the ``abs_tol``-swamps-tiny-values
-    failure mode of the old path.
+    Acceptance is relative-tolerance OR stated-precision (round-aware):
+    a prediction that rounds to the gold at the gold's own decimal
+    precision counts, since dataset golds are explicitly rounded
+    (e.g. √(2·0.54e-3/0.12)=0.0949 vs gold "0.09").
     """
     p = parse_number(pred_value)
     e = parse_number(exp_value)
@@ -126,10 +170,12 @@ def quantity_match(
         except UnitConversionError:
             converted = None
         if converted is not None:
-            return math.isclose(converted.value_si, e, rel_tol=rel_tol, abs_tol=abs_tol)
+            return _values_agree(
+                converted.value_si, e, exp_value, rel_tol=rel_tol, abs_tol=abs_tol
+            )
 
     # No usable units (or inconvertible) → legacy raw compare.
-    return math.isclose(p, e, rel_tol=rel_tol, abs_tol=abs_tol)
+    return _values_agree(p, e, exp_value, rel_tol=rel_tol, abs_tol=abs_tol)
 
 
 # ---------------------------------------------------------------------------
