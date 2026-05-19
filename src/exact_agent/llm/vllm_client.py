@@ -16,6 +16,7 @@ A :class:`MockLLMClient` is provided for tests.
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -25,6 +26,13 @@ import yaml
 
 from exact_agent.config import get_settings
 from exact_agent.llm.retry import llm_retry
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 @dataclass(frozen=True)
@@ -54,16 +62,26 @@ class LLMConfig:
         cfg_path = path if path is not None else str(get_settings().configs_dir / "model.yaml")
         with open(cfg_path, encoding="utf-8") as f:
             data = (yaml.safe_load(f) or {}).get("llm", {}) or {}
+
+        # Deployment overrides. A container points the API at a sidecar
+        # Ollama/vLLM service (e.g. http://ollama:11434/v1) without editing
+        # model.yaml — same `EXACT_…__…` convention exact_agent.config uses
+        # for app.yaml. Env beats file; absent env → file value unchanged
+        # (so local dev and the test suite see model.yaml verbatim).
+        base_default = str(data.get("vllm_base_url", "http://localhost:8001/v1"))
+        lora_default = str(data.get("lora_adapter_path", ""))
+        enable_lora = _env_bool("EXACT_LLM__ENABLE_LORA", bool(data.get("enable_lora", False)))
+
         return cls(
-            base_url=str(data.get("vllm_base_url", "http://localhost:8001/v1")),
-            api_key=str(data.get("api_key", "local-no-auth")),
-            model=str(data.get("backbone", "Qwen/Qwen3-8B")),
+            base_url=os.environ.get("EXACT_LLM__BASE_URL", base_default),
+            api_key=os.environ.get("EXACT_LLM__API_KEY", str(data.get("api_key", "local-no-auth"))),
+            model=os.environ.get("EXACT_LLM__MODEL", str(data.get("backbone", "Qwen/Qwen3-8B"))),
             max_tokens=int(data.get("max_tokens", 1024)),
             temperature=float(data.get("temperature", 0.2)),
             top_p=float(data.get("top_p", 0.9)),
             timeout_s=float(data.get("timeout_s", 20)),
-            enable_lora=bool(data.get("enable_lora", False)),
-            lora_adapter_path=str(data.get("lora_adapter_path", "")),
+            enable_lora=enable_lora,
+            lora_adapter_path=os.environ.get("EXACT_LLM__LORA_ADAPTER_PATH", lora_default),
             mode=str(data.get("mode", "completion")).lower(),
             disable_thinking=bool(data.get("disable_thinking", False)),
         )

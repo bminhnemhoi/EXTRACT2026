@@ -1,0 +1,81 @@
+# Submission deployment topology (rented GPU host: Runpod / Vast / Lambda).
+#
+#   ollama  ── GPU, serves qwen2.5:3b-instruct over an OpenAI-compatible API
+#   pull    ── one-shot: warms the model into the ollama volume, then exits
+#   api     ── CPU, the neuro-symbolic solver + FastAPI /predict /healthz
+#
+# The API reaches the model at http://ollama:11434/v1 via EXACT_LLM__BASE_URL
+# (no model.yaml edit). EXACT_SELF_CORRECTION__ENABLED=true is what makes the
+# Orchestrator build the LLM client, so the physics quantity-extractor, the
+# logic NL→FOL translator AND the solver-grounded self-correction loop are
+# all live — this reproduces the measured 28.6% physics / 37.5% logic.
+# Rule-only (no LLM) would collapse physics to 0.8%. See docs/decisions/0016.
+#
+#   docker compose -f docker/docker-compose.yml up -d --build
+#
+# `version:` is intentionally omitted (obsolete in Compose v2).
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    environment:
+      # Never unload the model — eliminates mid-evaluation cold starts
+      # (Ollama otherwise evicts an idle model after ~5 min).
+      OLLAMA_KEEP_ALIVE: "-1"
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    # GPU host (nvidia-container-toolkit present on Runpod/Vast/Lambda).
+    # Remove this block to run CPU-only (functional but ~10× slower —
+    # acceptable for a smoke, too slow for the evaluation window).
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # One-shot model warm-up. The api waits for this to complete so the first
+  # /predict never pays a cold model-load. The named volume persists the
+  # weights across restarts → fast always-on recovery.
+  model-pull:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: "http://ollama:11434"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["ollama pull qwen2.5:3b-instruct"]
+    restart: "no"
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    restart: unless-stopped
+    depends_on:
+      model-pull:
+        condition: service_completed_successfully
+    ports:
+      - "8000:8000"
+    environment:
+      # Point the solver's LLM utility calls at the sidecar.
+      EXACT_LLM__BASE_URL: "http://ollama:11434/v1"
+      EXACT_LLM__MODEL: "qwen2.5:3b-instruct"
+      EXACT_LLM__API_KEY: "ollama-no-auth"
+      # Builds the LLM client in the Orchestrator → enables the physics
+      # extractor + logic translator + self-correction (solver-grounded;
+      # never invents numbers — verified Day 8, ADR 0007/0008).
+      EXACT_SELF_CORRECTION__ENABLED: "true"
+      EXACT_LOGGING__LEVEL: "INFO"
+
+volumes:
+  ollama-models:

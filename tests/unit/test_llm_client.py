@@ -102,3 +102,45 @@ class TestModeRouting:
         cfg = LLMConfig.from_yaml()
         assert cfg.mode == "chat"
         assert "11434" in cfg.base_url
+
+
+class TestEnvOverride:
+    """Deployment override: container points the API at a sidecar service."""
+
+    def test_env_overrides_base_url_and_model(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("EXACT_LLM__BASE_URL", "http://ollama:11434/v1")
+        monkeypatch.setenv("EXACT_LLM__MODEL", "qwen2.5:7b-instruct")
+        monkeypatch.setenv("EXACT_LLM__API_KEY", "deploy-key")
+        cfg = LLMConfig.from_yaml()
+        assert cfg.base_url == "http://ollama:11434/v1"
+        assert cfg.model == "qwen2.5:7b-instruct"
+        assert cfg.api_key == "deploy-key"
+        # File-only leaves still come from model.yaml.
+        assert cfg.mode == "chat"
+
+    def test_absent_env_keeps_yaml_values(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        for var in (
+            "EXACT_LLM__BASE_URL",
+            "EXACT_LLM__MODEL",
+            "EXACT_LLM__API_KEY",
+            "EXACT_LLM__LORA_ADAPTER_PATH",
+            "EXACT_LLM__ENABLE_LORA",
+        ):
+            monkeypatch.delenv(var, raising=False)
+        cfg = LLMConfig.from_yaml()
+        # Regression: local dev / CI see model.yaml verbatim.
+        assert "11434" in cfg.base_url
+        assert cfg.enable_lora is False
+
+    def test_env_enable_lora_is_truthy_parsed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("EXACT_LLM__ENABLE_LORA", "true")
+        monkeypatch.setenv("EXACT_LLM__LORA_ADAPTER_PATH", "/models/adapter")
+        cfg = LLMConfig.from_yaml()
+        assert cfg.enable_lora is True
+        assert cfg.lora_adapter_path == "/models/adapter"

@@ -1,5 +1,8 @@
-# Day-1 API image: slim Python, baseline solver only. CUDA image will be
-# introduced for the LLM-serving variant in Phase 4.
+# Submission API image — the full neuro-symbolic stack (SymPy + Z3 + pint
+# solvers, FastAPI). No CUDA / no model weights here: LLM inference is an
+# OpenAI-compatible HTTP sidecar (Ollama or vLLM) reached via
+# EXACT_LLM__BASE_URL — see docker/docker-compose.yml. Keeps this image
+# small (~300 MB) and lets the GPU host scale independently.
 
 FROM python:3.11-slim AS builder
 
@@ -17,10 +20,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
     mv /root/.local/bin/uv /usr/local/bin/uv
 
-COPY pyproject.toml ./
+# README.md is required by the hatchling build (pyproject `readme = ...`).
+COPY pyproject.toml README.md ./
 COPY src ./src
 
-RUN uv sync --no-dev --frozen 2>/dev/null || uv sync --no-dev
+# physics (pint/sympy/numpy) + logic (z3/lark) extras are MANDATORY at serve
+# time — the deterministic solver is the product. The `llm` extra
+# (transformers/bitsandbytes) is deliberately excluded: inference is the
+# remote Ollama/vLLM sidecar, not in-process.
+RUN uv sync --no-dev --extra physics --extra logic --frozen 2>/dev/null \
+    || uv sync --no-dev --extra physics --extra logic
 
 # ----------------------------------------------------------------------------
 
@@ -30,6 +39,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH"
 
+# Install curl for the HEALTHCHECK probe.
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY --from=builder /app /app
@@ -37,7 +50,7 @@ COPY configs ./configs
 COPY data/cleaned ./data/cleaned
 
 EXPOSE 8000
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=20s \
     CMD curl -fsS http://localhost:8000/healthz || exit 1
 
 CMD ["uvicorn", "exact_agent.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
