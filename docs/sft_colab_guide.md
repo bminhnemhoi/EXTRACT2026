@@ -111,3 +111,26 @@ composition) — those are deferred CoT work, separate from SFT.
   state this in the 1-page solution PDF.
 - Backbone Qwen2.5-7B-Instruct: open-source, 7B ≤ 8B cap. ✓
 - Seed 42 throughout; LoRA config is in version control.
+
+## 5. Troubleshooting
+
+**`TypeError: Trainer.__init__() got an unexpected keyword argument
+'tokenizer'`** (cell 5, fixed in the committed notebook). Colab now
+ships transformers 5.x, which removed `Trainer(tokenizer=...)`. The
+notebook no longer passes `tokenizer=` to `SFTTrainer` (Unsloth binds
+it to the model) and moves `dataset_text_field` + `max_seq_length`
+into `SFTConfig`. If you hit this on an older copy of the notebook,
+re-pull it or apply that change.
+
+**Version soup in general**: don't `pip install` a pinned `trl` /
+`transformers` next to Unsloth — let `pip install unsloth` resolve one
+consistent stack (cell 1). Mixing an old `trl` with Colab's
+`transformers` 5.x is the root cause of the `tokenizer` error.
+
+**`warmup_ratio is deprecated`** and `You passed a max_seq_length /
+dataset_text_field argument…` — warnings only, safe to ignore; the run
+proceeds.
+
+**OOM on T4**: drop `per_device_train_batch_size` to 1 and raise
+`gradient_accumulation_steps` to 16 (same effective batch), or set
+`max_seq_length=1536`.
