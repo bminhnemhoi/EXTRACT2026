@@ -22,7 +22,7 @@ from exact_agent.logic.explanation import render_explanation
 from exact_agent.logic.forward_chainer import forward_chain
 from exact_agent.logic.llm_translator import (
     LLMTranslationError,
-    translate_question_to_fol,
+    translate_question_to_fol_with_verify,
 )
 from exact_agent.logic.premise_selector import select_top_k
 from exact_agent.logic.rule_parser import parse_premises
@@ -78,11 +78,20 @@ def _try_z3_fallback(
 
     claim_fol = payload.claim_FOL
     if not claim_fol and llm is not None:
+        # E5: solver-rejection loop (Slides 27 endorsed) — LLM proposes
+        # FOL, parser/vocab verify, on reject feedback the reason back
+        # and regenerate (≤2 extra rounds). The per-attempt trace is
+        # surfaced into the response cot so reviewers see the iterative
+        # refinement (P3 reward).
         try:
-            claim_fol = translate_question_to_fol(payload.question, list(fol_premises), llm)
+            claim_fol, attempts = translate_question_to_fol_with_verify(
+                payload.question, list(fol_premises), llm,
+            )
+            for line in attempts:
+                trace_sink.append(f"NL->FOL {line}")
             trace_sink.append(f"LLM translated claim → {claim_fol}")
         except LLMTranslationError as exc:
-            trace_sink.append(f"LLM translation failed: {exc}")
+            trace_sink.append(f"LLM translation failed after retries: {exc}")
             return None
     if not claim_fol:
         return None
