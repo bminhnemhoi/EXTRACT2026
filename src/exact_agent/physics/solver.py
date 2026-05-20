@@ -33,7 +33,11 @@ from exact_agent.physics.formula_library import (
     FormulaLibrary,
     default_library,
 )
-from exact_agent.physics.llm_extractor import LLMExtractionError, extract_with_llm
+from exact_agent.physics.llm_extractor import (
+    LLMExtractionError,
+    extract_with_llm,
+    extract_with_llm_self_consistent,
+)
 from exact_agent.physics.quantity_extractor import (
     ExtractedQuantity,
     extract_quantities,
@@ -88,9 +92,22 @@ class PhysicsSolver:
         self,
         library: FormulaLibrary | None = None,
         llm_client: LLMClient | None = None,
+        *,
+        self_consistency_n: int | None = None,
     ) -> None:
         self._library = library or default_library()
         self._llm = llm_client
+        # E6: N>=2 samples & majority-votes the LLM extractor (Slide 28
+        # official tip). Read from configs/app.yaml::pipelines.physics
+        # if not explicitly set so an A/B switch is config-only.
+        if self_consistency_n is None:
+            from exact_agent.config import get_settings  # noqa: PLC0415
+            self_consistency_n = int(
+                get_settings().pipelines.physics.llm_self_consistency_n
+            )
+        if self_consistency_n < 1:
+            raise ValueError("self_consistency_n must be >= 1")
+        self._self_consistency_n = self_consistency_n
 
     def solve(self, question: str) -> SolverResult:
         trace: list[str] = []
@@ -220,19 +237,35 @@ class PhysicsSolver:
     ) -> list[ExtractedQuantity] | None:
         """Use the LLM to recover inputs the regex extractor missed.
 
-        Returns ``None`` when the LLM is not configured or its output didn't
-        cover every required input. The trace is updated either way so the
-        explanation can quote the recovery attempt.
+        E6: when ``self._self_consistency_n > 1`` we sample N independent
+        extractions and majority-vote per symbol (Slide 28 official
+        practical tip). The vote count goes into the trace as P3
+        evidence ("LLM extractor (3/3 votes): C=1e-4 F, U=30 V").
+
+        Returns ``None`` when the LLM is not configured or its output
+        didn't cover every required input. The trace is updated either
+        way so the explanation can quote the recovery attempt.
         """
         if self._llm is None:
             return None
+        n = self._self_consistency_n
         try:
-            recovered = extract_with_llm(question, formula, self._llm)
+            if n > 1:
+                recovered, votes = extract_with_llm_self_consistent(
+                    question, formula, self._llm, n_votes=n,
+                )
+                names = ", ".join(
+                    f"{q.name}={q.value} {q.unit} ({votes[q.name]}/{n} votes)"
+                    for q in recovered
+                )
+                trace.append(f"LLM extractor (self-consistent N={n}): {names}")
+            else:
+                recovered = extract_with_llm(question, formula, self._llm)
+                names = ", ".join(f"{q.name}={q.value} {q.unit}" for q in recovered)
+                trace.append(f"LLM extractor recovered: {names}")
         except LLMExtractionError as exc:
             trace.append(f"LLM extractor failed: {exc}")
             return None
-        names = ", ".join(f"{q.name}={q.value} {q.unit}" for q in recovered)
-        trace.append(f"LLM extractor recovered: {names}")
         return recovered
 
     @staticmethod

@@ -149,7 +149,23 @@ class LogicPipeline:
                 selected_premise_texts.append(premises[pid - 1])
 
         explanation = render_explanation(question, chain, verifier, selected_premise_texts)
-        premises_labels = [f"P{p}" for p in verifier.supports] if verifier.supports else None
+        # E12: emit BOTH the 1-based index *and* the premise text per slide 33
+        # of the organizer deck (the example shows premise statements, not
+        # bare "P1"/"P7" labels). The "P{i}: …" form preserves the index
+        # alignment with the dataset's 1-based `idx` gold while making the
+        # cited evidence human-readable in the API response — exactly what
+        # the Public Test Day reviewers will judge for P3.
+        if verifier.supports:
+            premises_labels = [
+                (
+                    f"P{pid}: {premises[pid - 1]}"
+                    if 1 <= pid <= len(premises)
+                    else f"P{pid}"
+                )
+                for pid in verifier.supports
+            ]
+        else:
+            premises_labels = None
 
         top_labels = ", ".join(rp.label for rp in ranked[:5])
         cot = [

@@ -27,6 +27,11 @@ pipelines:
     numeric_tolerance_rel: 0.01
     use_solver_first: true
     fallback_to_llm: true
+    # E6 (Day-22): N independent LLM extractions, majority-vote per
+    # symbol (Slide 28 endorsed). 1 = single-shot (legacy). 3 = vote.
+    # Trade: N× latency. With qwen2.5:3b @ ~700ms, N=3 ~= 2.1s/call
+    # for rows that miss the regex — still ≪ 60s/req cap.
+    llm_self_consistency_n: 3
 
 self_correction:
   # Default OFF: keeps tests/CI deterministic and the API LLM-free unless a

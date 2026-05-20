@@ -59,6 +59,10 @@ class PhysicsPipelineConfig(BaseModel):
     numeric_tolerance_rel: float = 0.01
     use_solver_first: bool = True
     fallback_to_llm: bool = True
+    # E6: number of independent LLM extractions to majority-vote per
+    # symbol. 1 = legacy single-shot (default — backwards compatible);
+    # 3 = self-consistency vote (Slide 28 official practical tip).
+    llm_self_consistency_n: int = 1
 
 
 class PipelinesConfig(BaseModel):
