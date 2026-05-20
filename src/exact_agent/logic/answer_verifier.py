@@ -114,23 +114,35 @@ def verify_multiple_choice(
     chain: ChainResult,
     *,
     margin: float = 0.0,
-    abstain_when_all_zero: bool = False,
+    min_top_score: float = 0.0,
+    abstain_when_all_zero: bool = True,
 ) -> VerifierResult:
     """Pick the option whose surface form best matches a derived fact.
 
-    Day-4 policy: only abstain when *every* option scores zero; otherwise
-    return the top option with a confidence proportional to (top - runner-up).
-    Setting ``abstain_when_all_zero=True`` makes the verifier surrender on
-    completely cold rounds; the default is to commit a guess so MC accuracy
-    isn't dragged down by abstentions on hard items.
+    E4 policy (Day-21, post official 2026-05-15 release): **"Unknown" is
+    a legitimate MC label.** The release retains 168 MCQ records whose
+    correct answer is ``Unknown`` (premises genuinely under-determine —
+    CHANGELOG_TYPE1; a separate 103 MCQs that previously said
+    ``Unknown`` were *fixed* to letters). The Day-4 "always commit"
+    policy scored zero on every retained Unknown row.
+
+    The default change is **conservative**: keep the alphabetical-tie
+    commit when there is *any* signal (≥1 overlapping token), but
+    abstain to ``"Unknown"`` (not ``""``) when literally no option
+    overlapped. The stricter ``min_top_score`` and ``margin`` paths are
+    *opt-in via kwargs* — measured on the 2026-05-15 holdout, defaults
+    of 0.15 / 0.05 over-abstained MC (40% → 0% on the 15-row slice)
+    with no clear YNU gain attributable. Keep them available so future
+    tuning can lift them when a per-prefix score distribution is known.
+    Callers can also disable the all-zero path with ``abstain_when_all_zero=False``.
     """
     options = _parse_options(question, choices)
     if not options:
         return VerifierResult(
-            answer="",
+            answer="Unknown",
             supports=chain.all_supports()[:3],
             rationale="No multiple-choice options parsed.",
-            confidence=0.0,
+            confidence=0.2,
         )
 
     scored: list[tuple[str, float, tuple[int, ...]]] = []
@@ -148,23 +160,32 @@ def verify_multiple_choice(
     scored.sort(key=lambda t: -t[1])
     top = scored[0]
     runner_up_score = scored[1][1] if len(scored) > 1 else 0.0
+    spread = max(0.0, top[1] - runner_up_score)
 
     if top[1] == 0.0 and abstain_when_all_zero:
         return VerifierResult(
-            answer="",
+            answer="Unknown",
             supports=chain.all_supports()[:3],
             rationale="No option had any token overlap with the derived facts.",
             confidence=0.2,
         )
-
-    spread = max(0.0, top[1] - runner_up_score)
+    if top[1] < min_top_score:
+        return VerifierResult(
+            answer="Unknown",
+            supports=top[2],
+            rationale=(
+                f"Best option {top[0]!r} score {top[1]:.2f} below min_top_score "
+                f"{min_top_score}; insufficient signal -> Unknown."
+            ),
+            confidence=0.25,
+        )
     if margin > 0.0 and spread < margin:
         return VerifierResult(
-            answer="",
+            answer="Unknown",
             supports=top[2],
             rationale=(
                 f"Top option {top[0]!r} (score {top[1]:.2f}) too close to runner-up "
-                f"({runner_up_score:.2f}); abstaining."
+                f"({runner_up_score:.2f}); insufficient discrimination -> Unknown."
             ),
             confidence=0.25,
         )

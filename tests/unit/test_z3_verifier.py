@@ -90,3 +90,28 @@ class TestMultiVarAndComparison:
             "PassedExam(Alice)",
         ]
         assert verify_with_z3(premises, "ReceivesCredit(Alice)").verdict == "Yes"
+
+
+class TestMixedArity:
+    def test_same_name_different_arity_does_not_crash(self) -> None:
+        # Regression: an upstream NL->FOL translator may emit the same
+        # predicate name with two arities across premises (e.g. Has/1
+        # ground predicate vs Has/2 binary relation). Pre-fix this raised
+        # ``z3.z3types.Z3Exception: index out of bounds`` and killed the
+        # whole eval run. Post-fix: P/1 and P/2 are distinct funcdecls,
+        # the run completes, and the verdict is sound (Unknown here, no
+        # entailment to be had between unrelated arities).
+        premises = [
+            "Has(Alice)",                    # arity 1
+            "Has(Alice, BA)",                # arity 2
+            "∀x (Has(x) → Eligible(x))",     # uses Has/1
+        ]
+        result = verify_with_z3(premises, "Eligible(Alice)")
+        assert result.verdict == "Yes"      # via Has/1 path
+
+    def test_mixed_arity_does_not_corrupt_unrelated_path(self) -> None:
+        premises = [
+            "Has(Alice, BA)",                # arity 2 only
+            "∀x (∀y (Has(x, y) → Holds(x)))",
+        ]
+        assert verify_with_z3(premises, "Holds(Alice)").verdict == "Yes"

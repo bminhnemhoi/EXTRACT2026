@@ -57,17 +57,47 @@ class TestVerifyMultipleChoice:
         result = verify_multiple_choice("Which is true?", choices, chain)
         assert result.answer == "B"
 
-    def test_commits_guess_when_options_tie(self) -> None:
+    def test_abstains_unknown_when_no_signal(self) -> None:
+        # E4 policy (2026-05-15+): when no option overlaps the chain at
+        # all, the answer is the legitimate label "Unknown" — not empty,
+        # not an alphabetical guess. The official release retains 168
+        # MCQs whose gold IS "Unknown".
         chain = _build_chain(["Unrelated background fact about kittens."])
         choices = {"A": "alpha", "B": "beta", "C": "gamma", "D": "delta"}
         result = verify_multiple_choice("Pick one.", choices, chain)
-        # Day-4 policy: don't abstain — commit to the top alphabetical option
-        # (label A wins ties from sort stability) with low confidence.
-        assert result.answer == "A"
+        assert result.answer == "Unknown"
         assert result.confidence < 0.5
 
-    def test_abstains_when_all_zero_with_explicit_flag(self) -> None:
+    def test_commits_letter_when_any_signal_exists(self) -> None:
+        # Conservative default (post-retune): one overlapping token is
+        # enough to commit a letter rather than abstain — measured the
+        # stricter threshold over-abstained MC on the holdout.
+        chain = _build_chain(["The student receives credit."])
+        choices = {
+            "A": "credit",
+            "B": "completely unrelated thing about kittens",
+            "C": "another unrelated thing",
+            "D": "yet another",
+        }
+        result = verify_multiple_choice("Pick one.", choices, chain)
+        assert result.answer == "A"
+
+    def test_caller_can_opt_in_to_strict_threshold(self) -> None:
+        # The strict path is reachable for callers that want it.
+        chain = _build_chain(["The student receives credit."])
+        choices = {
+            "A": "credit",
+            "B": "completely unrelated thing about kittens",
+            "C": "another unrelated thing",
+            "D": "yet another",
+        }
+        result = verify_multiple_choice("Pick one.", choices, chain, min_top_score=0.9)
+        assert result.answer == "Unknown"
+
+    def test_caller_can_disable_unknown_abstention(self) -> None:
         chain = _build_chain(["Unrelated background fact about kittens."])
         choices = {"A": "alpha", "B": "beta", "C": "gamma", "D": "delta"}
-        result = verify_multiple_choice("Pick one.", choices, chain, abstain_when_all_zero=True)
-        assert result.answer == ""
+        result = verify_multiple_choice(
+            "Pick one.", choices, chain, abstain_when_all_zero=False
+        )
+        assert result.answer == "A"

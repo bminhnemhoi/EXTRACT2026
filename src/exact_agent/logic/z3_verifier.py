@@ -78,51 +78,63 @@ def _collect_constants(items: list[Atom | Comparison | Rule]) -> set[str]:
     return constants
 
 
-def _arity_for(name: str, kind: str, items: list[Atom | Comparison | Rule]) -> int:
-    """Infer arity of a Bool predicate (kind='pred') or Real func (kind='cmp')."""
-    for item in items:
-        for lit in _lits(item):
-            if kind == "pred" and isinstance(lit, Atom) and lit.predicate == name:
-                return len(lit.args)
-            if kind == "cmp" and isinstance(lit, Comparison) and lit.func == name:
-                return len(lit.args)
-    return 1
-
-
 def _build_environment(
     parsed_items: list[Atom | Comparison | Rule],
     extras: list[Atom | Comparison | Rule] | None = None,
 ) -> tuple[
     z3.SortRef,
-    dict[str, z3.FuncDeclRef],
-    dict[str, z3.FuncDeclRef],
+    dict[tuple[str, int], z3.FuncDeclRef],
+    dict[tuple[str, int], z3.FuncDeclRef],
     dict[str, z3.ExprRef],
 ]:
     """Shared Entity sort + Bool predicates + Real comparison-functions +
     ground constants. ``extras`` (the parsed claim) is registered too so
-    its symbols exist before asserting."""
+    its symbols exist before asserting.
+
+    Predicates / comparison funcs are keyed by ``(name, arity)``: a
+    translator that emits ``Student(x)`` in one premise and ``Student(x,
+    year)`` in another would otherwise crash Z3 ("index out of bounds") at
+    apply time. Treating ``P/1`` and ``P/2`` as distinct funcdecls is
+    sound (FOL permits this), keeps the solver running, and is the only
+    practical option given imperfect upstream NL->FOL translation.
+    """
     Entity = z3.DeclareSort("Entity")
     everything: list[Atom | Comparison | Rule] = list(parsed_items)
     if extras:
         everything.extend(extras)
 
-    preds: set[str] = set()
-    cmps: set[str] = set()
+    pred_arities: set[tuple[str, int]] = set()
+    cmp_arities: set[tuple[str, int]] = set()
     for item in everything:
         for lit in _lits(item):
             if isinstance(lit, Comparison):
-                cmps.add(lit.func)
+                cmp_arities.add((lit.func, len(lit.args)))
             else:
-                preds.add(lit.predicate)
+                pred_arities.add((lit.predicate, len(lit.args)))
 
-    predicates = {
-        p: z3.Function(p, *([Entity] * _arity_for(p, "pred", everything)), z3.BoolSort())
-        for p in sorted(preds)
-    }
-    cmp_funcs = {
-        c: z3.Function(c, *([Entity] * _arity_for(c, "cmp", everything)), z3.RealSort())
-        for c in sorted(cmps)
-    }
+    def _decl_name(name: str, arity: int, seen: dict[str, int]) -> str:
+        # Z3 doesn't actually care if two FuncDecls share a Python label;
+        # only the FuncDeclRef identity matters. We still suffix the
+        # second+ arity so error messages and debug prints distinguish.
+        seen[name] = seen.get(name, 0) + 1
+        return name if seen[name] == 1 else f"{name}__a{arity}"
+
+    seen_pred: dict[str, int] = {}
+    predicates: dict[tuple[str, int], z3.FuncDeclRef] = {}
+    for name, arity in sorted(pred_arities):
+        label = _decl_name(name, arity, seen_pred)
+        predicates[name, arity] = z3.Function(
+            label, *([Entity] * max(arity, 0)), z3.BoolSort()
+        )
+
+    seen_cmp: dict[str, int] = {}
+    cmp_funcs: dict[tuple[str, int], z3.FuncDeclRef] = {}
+    for name, arity in sorted(cmp_arities):
+        label = _decl_name(name, arity, seen_cmp)
+        cmp_funcs[name, arity] = z3.Function(
+            label, *([Entity] * max(arity, 0)), z3.RealSort()
+        )
+
     constants_map: dict[str, z3.ExprRef] = {
         name: z3.Const(name, Entity) for name in sorted(_collect_constants(everything))
     }
@@ -163,18 +175,19 @@ def _lit_to_z3(
     lit: Atom | Comparison,
     *,
     Entity: z3.SortRef,
-    predicates: dict[str, z3.FuncDeclRef],
-    cmp_funcs: dict[str, z3.FuncDeclRef],
+    predicates: dict[tuple[str, int], z3.FuncDeclRef],
+    cmp_funcs: dict[tuple[str, int], z3.FuncDeclRef],
     constants_map: dict[str, z3.ExprRef],
     binders: dict[str, z3.ExprRef] | None = None,
 ) -> z3.BoolRef:
+    arity = len(lit.args)
     if isinstance(lit, Comparison):
-        fn = cmp_funcs[lit.func]
+        fn = cmp_funcs[lit.func, arity]
         args = _args_to_z3(lit.args, Entity=Entity, constants_map=constants_map, binders=binders)
         lhs = fn(*args) if args else fn()
         return _OP_FN[lit.op](lhs, z3.RealVal(lit.value))
 
-    func = predicates[lit.predicate]
+    func = predicates[lit.predicate, arity]
     args = _args_to_z3(lit.args, Entity=Entity, constants_map=constants_map, binders=binders)
     expr = func(*args) if args else func()
     return z3.Not(expr) if lit.polarity == "neg" else expr
@@ -184,8 +197,8 @@ def _rule_to_z3(
     rule: Rule,
     *,
     Entity: z3.SortRef,
-    predicates: dict[str, z3.FuncDeclRef],
-    cmp_funcs: dict[str, z3.FuncDeclRef],
+    predicates: dict[tuple[str, int], z3.FuncDeclRef],
+    cmp_funcs: dict[tuple[str, int], z3.FuncDeclRef],
     constants_map: dict[str, z3.ExprRef],
 ) -> z3.BoolRef:
     binders = {v: z3.Const(v, Entity) for v in rule.quantified_vars}
