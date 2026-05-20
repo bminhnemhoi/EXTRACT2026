@@ -21,12 +21,14 @@ back cleanly when no consensus exists.
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Sequence
 from typing import Any
 
 from exact_agent.llm.prompt_templates import render
 from exact_agent.llm.vllm_client import LLMClient, parse_json_completion
 from exact_agent.physics.formula_library import Formula
 from exact_agent.physics.quantity_extractor import ExtractedQuantity
+from exact_agent.physics.rag_retriever import WorkedExample
 
 
 class LLMExtractionError(RuntimeError):
@@ -39,12 +41,17 @@ def extract_with_llm(
     client: LLMClient,
     *,
     max_tokens: int = 256,
+    examples: Sequence[WorkedExample] = (),
 ) -> list[ExtractedQuantity]:
     """Ask the LLM for the formula's required inputs as JSON, return them.
 
     Returns one :class:`ExtractedQuantity` per declared input on success.
     Missing keys raise :class:`LLMExtractionError` so the caller can fall
     back to abstaining instead of silently inventing numbers.
+
+    ``examples`` (E8 RAG): optional list of solved training rows to
+    inject as few-shot demonstrations before the actual question — the
+    Slide-28 "Practical Tips" pattern. Empty tuple ⇒ legacy zero-shot.
     """
     inputs_dict: dict[str, Any] = {}
     for name, spec in formula.inputs.items():
@@ -59,6 +66,7 @@ def extract_with_llm(
         description=formula.description,
         inputs=inputs_dict,
         question=question,
+        examples=list(examples),
     )
 
     raw = client.complete(prompt, max_tokens=max_tokens)
@@ -109,6 +117,7 @@ def extract_with_llm_self_consistent(
     n_votes: int = 3,
     max_tokens: int = 256,
     tol: float = 0.01,
+    examples: Sequence[WorkedExample] = (),
 ) -> tuple[list[ExtractedQuantity], dict[str, int]]:
     """Vote-aggregate ``n_votes`` independent :func:`extract_with_llm` calls.
 
@@ -132,7 +141,10 @@ def extract_with_llm_self_consistent(
     last_err: Exception | None = None
     for _ in range(n_votes):
         try:
-            attempts.append(extract_with_llm(question, formula, client, max_tokens=max_tokens))
+            attempts.append(extract_with_llm(
+                question, formula, client,
+                max_tokens=max_tokens, examples=examples,
+            ))
         except LLMExtractionError as exc:
             last_err = exc
 

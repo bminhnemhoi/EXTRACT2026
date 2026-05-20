@@ -1,5 +1,7 @@
 {# Extract physics quantities into JSON. Caller provides the expected schema
-   from the matched formula in physics_formulas.yaml. #}
+   from the matched formula in physics_formulas.yaml. When `examples` is
+   passed (E8 RAG few-shot), they are presented before the actual question
+   to demonstrate the extraction pattern. #}
 You extract numerical quantities and units from physics word problems.
 Return ONLY a single JSON object — no commentary, no markdown fences.
 
@@ -14,6 +16,14 @@ Output schema:
   "{{ name }}": {"value": <number>, "unit": "<original unit string>"}{% if not loop.last %},{% endif %}
 {%- endfor %}
 }
-
+{% if examples %}
+Here are {{ examples|length }} similar solved problems (reference for variable patterns and units — do NOT copy their numbers):
+{% for ex in examples %}
+[EXAMPLE {{ loop.index }}]
+Question: {{ ex.question }}
+Worked solution: {{ ex.cot }}
+Answer: {{ ex.answer }} {{ ex.unit }}
+{% endfor %}
+{% endif %}
 Question: {{ question }}
 JSON:

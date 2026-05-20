@@ -63,6 +63,11 @@ class PhysicsPipelineConfig(BaseModel):
     # symbol. 1 = legacy single-shot (default — backwards compatible);
     # 3 = self-consistency vote (Slide 28 official practical tip).
     llm_self_consistency_n: int = 1
+    # E8 (Day-22): number of TF-IDF-retrieved solved training rows to
+    # inject as few-shot demonstrations in the extractor prompt. 0 =
+    # legacy zero-shot (default for backcompat); 3 = the Slide-28
+    # "RAG with solved examples" pattern.
+    rag_examples_n: int = 0
 
 
 class PipelinesConfig(BaseModel):

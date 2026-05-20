@@ -32,6 +32,11 @@ pipelines:
     # Trade: N× latency. With qwen2.5:3b @ ~700ms, N=3 ~= 2.1s/call
     # for rows that miss the regex — still ≪ 60s/req cap.
     llm_self_consistency_n: 3
+    # E8 (Day-22): TF-IDF-retrieved solved training rows injected as
+    # few-shot demos in the extractor prompt (Slide 28 endorsed RAG).
+    # 0 = zero-shot (legacy). 3 = retrieve top-3 most similar trained
+    # solutions and demonstrate the extraction pattern.
+    rag_examples_n: 3
 
 self_correction:
   # Default OFF: keeps tests/CI deterministic and the API LLM-free unless a

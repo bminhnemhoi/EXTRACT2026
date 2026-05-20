@@ -44,6 +44,7 @@ from exact_agent.physics.quantity_extractor import (
     find_by_name,
 )
 from exact_agent.physics.question_cleaner import clean as clean_question
+from exact_agent.physics.rag_retriever import RagRetriever, default_retriever
 from exact_agent.physics.topic_classifier import classify
 from exact_agent.physics.unit_converter import (
     UnitConversionError,
@@ -94,20 +95,34 @@ class PhysicsSolver:
         llm_client: LLMClient | None = None,
         *,
         self_consistency_n: int | None = None,
+        rag_examples_n: int | None = None,
+        retriever: RagRetriever | None = None,
     ) -> None:
         self._library = library or default_library()
         self._llm = llm_client
-        # E6: N>=2 samples & majority-votes the LLM extractor (Slide 28
-        # official tip). Read from configs/app.yaml::pipelines.physics
-        # if not explicitly set so an A/B switch is config-only.
-        if self_consistency_n is None:
+        # E6 / E8: read defaults from configs/app.yaml::pipelines.physics
+        # when callers don't override, so config-only A/B switches work.
+        if self_consistency_n is None or rag_examples_n is None:
             from exact_agent.config import get_settings  # noqa: PLC0415
-            self_consistency_n = int(
-                get_settings().pipelines.physics.llm_self_consistency_n
-            )
+            cfg = get_settings().pipelines.physics
+            if self_consistency_n is None:
+                self_consistency_n = int(cfg.llm_self_consistency_n)
+            if rag_examples_n is None:
+                rag_examples_n = int(cfg.rag_examples_n)
         if self_consistency_n < 1:
             raise ValueError("self_consistency_n must be >= 1")
+        if rag_examples_n < 0:
+            raise ValueError("rag_examples_n must be >= 0")
         self._self_consistency_n = self_consistency_n
+        self._rag_examples_n = rag_examples_n
+        # Lazy: only build the retriever if RAG is actually on, and
+        # only when the data file is present. Tests inject explicitly.
+        if retriever is not None:
+            self._retriever: RagRetriever | None = retriever
+        elif rag_examples_n > 0:
+            self._retriever = default_retriever()
+        else:
+            self._retriever = None
 
     def solve(self, question: str) -> SolverResult:
         trace: list[str] = []
@@ -249,10 +264,19 @@ class PhysicsSolver:
         if self._llm is None:
             return None
         n = self._self_consistency_n
+        # E8: retrieve few-shot demos for THIS query when RAG is on.
+        examples: list = []
+        if self._retriever is not None and self._rag_examples_n > 0:
+            examples = self._retriever.top_k(question, k=self._rag_examples_n)
+            if examples:
+                trace.append(
+                    "RAG few-shot demos: "
+                    + ", ".join(ex.sample_id for ex in examples)
+                )
         try:
             if n > 1:
                 recovered, votes = extract_with_llm_self_consistent(
-                    question, formula, self._llm, n_votes=n,
+                    question, formula, self._llm, n_votes=n, examples=examples,
                 )
                 names = ", ".join(
                     f"{q.name}={q.value} {q.unit} ({votes[q.name]}/{n} votes)"
@@ -260,7 +284,9 @@ class PhysicsSolver:
                 )
                 trace.append(f"LLM extractor (self-consistent N={n}): {names}")
             else:
-                recovered = extract_with_llm(question, formula, self._llm)
+                recovered = extract_with_llm(
+                    question, formula, self._llm, examples=examples,
+                )
                 names = ", ".join(f"{q.name}={q.value} {q.unit}" for q in recovered)
                 trace.append(f"LLM extractor recovered: {names}")
         except LLMExtractionError as exc:
