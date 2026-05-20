@@ -110,6 +110,7 @@ ignore = [
 "tests/unit/test_unit_converter.py" = ["RUF001", "RUF002", "RUF003"]
 "tests/unit/test_metrics.py" = ["RUF001", "RUF002", "RUF003"]
 "tests/unit/test_question_cleaner.py" = ["RUF001", "RUF002", "RUF003"]
+"tests/unit/test_rag_retriever.py" = ["RUF001", "RUF002", "RUF003", "E501"]
 
 [tool.mypy]
 python_version = "3.11"
