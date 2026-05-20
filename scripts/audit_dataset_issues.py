@@ -41,7 +41,7 @@ def main() -> int:
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument(
         "--rel-tol", type=float, default=0.5,
-        help="Relative tolerance: only flag rows >this off (default 0.5 = 50%).",
+        help="Relative tolerance: only flag rows >this off (default 0.5 = 50 percent).",
     )
     parser.add_argument("--out", type=Path, default=Path("outputs/audit_candidates.md"))
     args = parser.parse_args()
@@ -63,6 +63,13 @@ def main() -> int:
             continue
         if not s.get("unit_correct"):
             continue
+        # The eval's `full_correct` is the authoritative scorer verdict —
+        # unit-aware, round-aware. A row already marked correct is not a
+        # dataset-issue candidate (the system+gold agree). The audit only
+        # surfaces rows the scorer marks WRONG despite confident, unit-
+        # consistent extraction — those are the cross-check candidates.
+        if s.get("full_correct"):
+            continue
         try:
             pred = float(s.get("predicted_value") or 0.0)
             exp = float(s.get("expected_value") or 0.0)
@@ -70,6 +77,10 @@ def main() -> int:
             continue
         if exp == 0.0:
             continue
+        # The raw rel-diff here is unit-naïve (we compare the SI float
+        # against the gold-unit's number). It only ranks candidates —
+        # the real "are these close?" question already answered No by
+        # the scorer above.
         rel = abs(pred - exp) / abs(exp)
         if rel > args.rel_tol:
             flagged.append({**s, "rel_diff": round(rel, 3)})

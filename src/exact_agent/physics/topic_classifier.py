@@ -102,6 +102,31 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
         ),
         "voltage_from_energy_capacitance",
     ),
+    # Parallel-plate geometry capacitance — area + separation given.
+    # MUST precede the "calculate its capacitance" rule below so a
+    # geometry problem doesn't fall into the energy/voltage formula.
+    # Day-22 audit surfaced TD162/189/383/174 all matching this shape;
+    # previous classifier routed them ⇒ wrong formula.
+    (
+        (
+            "parallel-plate capacitor has a dielectric",
+            "parallel-plate capacitor with a dielectric",
+            "relative permittivity",
+            "dielectric constant",
+        ),
+        "parallel_plate_capacitance_dielectric",
+    ),
+    (
+        (
+            # Specific parallel-plate phrasings only — the bare "plate
+            # area"/"plate separation" pulled in problems that already had
+            # a correct C/U-based formula (net -1 row on Day-22 holdout).
+            "air parallel-plate capacitor",
+            "parallel-plate air capacitor",
+            "air-filled parallel-plate",
+        ),
+        "parallel_plate_capacitance",
+    ),
     (
         (
             "calculate its capacitance",
@@ -166,6 +191,19 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
         ("perpendicular bisector",),
         "coulomb_force_perp_bisector",
     ),
+    # 3 identical charges at vertices of an equilateral triangle → vector
+    # sum of two equal pairwise forces at 60° gives F·√3. MUST also
+    # precede generic coulomb_force. Day-22 E10 audit (LD295, LD130,
+    # LD228, LD242, LD317) all hit this geometry; previous classifier
+    # routed them to single-pair coulomb_force ⇒ wrong magnitude.
+    (
+        (
+            "equilateral triangle",
+            "vertices of an equilateral",
+            "equilateral triangle with side",
+        ),
+        "coulomb_force_equilateral_three_identical",
+    ),
     # Coulomb / force between charges.
     (("coulomb",), "coulomb_force"),
     (("force between", "force acting on", "force on the charge"), "coulomb_force"),
@@ -208,6 +246,9 @@ _TARGET_WORDS: dict[str, frozenset[str]] = {
     "coulomb_force": frozenset({"force", "newton"}),
     "coulomb_force_at_midpoint": frozenset({"midpoint", "force"}),
     "coulomb_force_perp_bisector": frozenset({"bisector", "force"}),
+    "coulomb_force_equilateral_three_identical": frozenset({"equilateral", "force"}),
+    "parallel_plate_capacitance": frozenset({"capacitance", "farad"}),
+    "parallel_plate_capacitance_dielectric": frozenset({"capacitance", "farad"}),
     "resultant_two_forces": frozenset({"resultant", "angle"}),
     "electric_field_point_charge": frozenset({"intensity", "strength", "magnitude"}),
     "ohm_law_voltage": frozenset({"voltage", "volt"}),
