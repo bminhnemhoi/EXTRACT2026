@@ -272,6 +272,72 @@ formulas:
       unit: "newton"
     expression: "4 * 8.9875517923e9 * Abs(q3) * (Abs(q1) + Abs(q2)) / d**2"
 
+  magnetic_flux_solenoid_one_turn:
+    topic: DDT
+    description: "Magnetic flux through one turn of a solenoid (or any single loop) given field B and area A: Φ = B·A"
+    inputs:
+      B: { unit: "tesla",     aliases: ["magnetic_field", "field_strength", "flux_density"] }
+      A: { unit: "meter ** 2", aliases: ["area", "cross_section", "cross_sectional_area", "S"] }
+    output:
+      symbol: phi
+      unit: "weber"
+    expression: "B * A"
+
+  power_factor_from_r_z:
+    topic: DDT
+    description: "Power factor of an RLC circuit from resistance R and total impedance Z: cosφ = R/Z"
+    inputs:
+      R: { unit: "ohm", aliases: ["resistance"] }
+      Z: { unit: "ohm", aliases: ["impedance", "total_impedance"] }
+    output:
+      symbol: cos_phi
+      unit: "dimensionless"
+    expression: "R / Z"
+
+  inductance_for_resonance:
+    topic: CH
+    description: "Inductance needed for an LC circuit to resonate at frequency f: L = 1/(C·(2π·f)²)"
+    inputs:
+      C: { unit: "farad", aliases: ["capacitance"] }
+      f: { unit: "hertz", aliases: ["frequency", "resonant_frequency", "f0"] }
+    output:
+      symbol: L
+      unit: "henry"
+    expression: "1/(C*(2*pi*f)**2)"
+
+  electric_field_from_force:
+    topic: DT
+    description: "Electric field magnitude at a point from the force on a test charge: E = F/q"
+    inputs:
+      F: { unit: "newton",  aliases: ["force"] }
+      q: { unit: "coulomb", aliases: ["test_charge", "charge", "q_test"] }
+    output:
+      symbol: E
+      unit: "volt/meter"
+    expression: "F / Abs(q)"
+
+  inductance_from_inductor_energy:
+    topic: NL
+    description: "Inductance from stored magnetic energy and current: L = 2·W/I²"
+    inputs:
+      W: { unit: "joule",  aliases: ["energy", "magnetic_energy", "E"] }
+      I: { unit: "ampere", aliases: ["current"] }
+    output:
+      symbol: L
+      unit: "henry"
+    expression: "2*W/I**2"
+
+  current_from_voltage_impedance:
+    topic: CH
+    description: "RMS current in an RLC series from voltage and impedance: I = U/Z"
+    inputs:
+      U: { unit: "volt", aliases: ["voltage", "V", "rms_voltage"] }
+      Z: { unit: "ohm",  aliases: ["impedance", "total_impedance"] }
+    output:
+      symbol: I
+      unit: "ampere"
+    expression: "U / Z"
+
   parallel_plate_capacitance:
     topic: TD
     description: "Capacitance of an air parallel-plate capacitor: C = ε₀·A/d (vacuum permittivity 8.854e-12 F/m)"

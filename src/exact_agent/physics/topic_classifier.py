@@ -137,14 +137,18 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     ),
     (
         (
-            "energy stored",
+            "energy stored in capacitor",
+            "energy stored in a capacitor",
+            "energy stored in the capacitor",
             "energy in capacitor",
+            "energy in a capacitor",
+            "energy in the capacitor",
             "energy of the capacitor",
+            "energy of a capacitor",
             "energy (mj) stored",
             "energy in the electric field",
             "energy stored in the electric field",
             "electric field energy",
-            "field energy",
             "0.5cu",
             "0.5 cu",
         ),
@@ -194,8 +198,10 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     # 3 identical charges at vertices of an equilateral triangle → vector
     # sum of two equal pairwise forces at 60° gives F·√3. MUST also
     # precede generic coulomb_force. Day-22 E10 audit (LD295, LD130,
-    # LD228, LD242, LD317) all hit this geometry; previous classifier
-    # routed them to single-pair coulomb_force ⇒ wrong magnitude.
+    # LD228, LD242) all hit this geometry. Day-23 audit found LD314 /
+    # LD317 / LD396 misroute here because they say "equilateral" but
+    # ASK for the field. F2 guard in `_keyword_match` skips this rule
+    # when the question is field-asking (V/m or "field intensity"...).
     (
         (
             "equilateral triangle",
@@ -203,6 +209,16 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
             "equilateral triangle with side",
         ),
         "coulomb_force_equilateral_three_identical",
+    ),
+    # F1 new — E = F/q. Day-23 audit DT046: F=3mN given on test charge
+    # q=1e-7 C → E = 3e4 V/m. Must precede the field/force rules below.
+    (
+        (
+            "experiences a force",
+            "experiencing a force",
+            "force of magnitude",
+        ),
+        "electric_field_from_force",
     ),
     # Coulomb / force between charges.
     (("coulomb",), "coulomb_force"),
@@ -221,9 +237,52 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
         ),
         "electric_field_point_charge",
     ),
+    # F1 new — power factor cosφ = R/Z. Audit DDT327, DDT337 ("calculate
+    # the power factor"). MUST precede impedance generic.
+    (
+        ("power factor", "cosφ", "cos φ", "cos(φ)", "cosphi"),
+        "power_factor_from_r_z",
+    ),
+    # F1 new — magnetic flux Φ = B·A through one turn. DDT158
+    # ("magnetic flux through one turn").
+    (
+        ("magnetic flux through one turn", "flux through one turn", "magnetic flux through a turn"),
+        "magnetic_flux_solenoid_one_turn",
+    ),
+    # F1 new — inductance for resonance. CH067/CH084 ("what value of L /
+    # required inductance to resonate at f"). Must precede LC resonance
+    # frequency rule which would otherwise grab the same question.
+    (
+        (
+            "what value of inductor",
+            "required inductance",
+            "what is the required inductance",
+            "needed to resonate",
+            "required to resonate at",
+        ),
+        "inductance_for_resonance",
+    ),
+    # F1 new — inductance from inductor magnetic energy + current. NL010.
+    (
+        (
+            "calculate its inductance",
+            "calculate the inductance",
+        ),
+        "inductance_from_inductor_energy",
+    ),
+    # F1 new — current from voltage and impedance. RLC-DDT339-style.
+    (
+        ("calculate the rms current", "calculate the current i in the circuit"),
+        "current_from_voltage_impedance",
+    ),
     (("resistors in parallel", "connected in parallel", "in parallel"), "parallel_resistance_two"),
     (("resistors in series", "connected in series", "in series"), "series_resistance_two"),
     (("rlc impedance", "impedance of", "total impedance"), "rlc_impedance"),
+    # F2 fix — LC resonance question (L + C present, no R). The naive
+    # "in series" rule above was eating CH025/CH031/CH032 ("L in series
+    # with C"). Detect them here BEFORE this point... actually we keep
+    # the rule order: resonant_frequency rule below catches it via
+    # "resonant frequency" keyword present in those questions.
     (("resonance frequency", "resonant frequency", "natural frequency"), "resonance_frequency"),
     (("solenoid",), "magnetic_field_solenoid"),
     (("long wire", "straight wire", "current-carrying wire"), "magnetic_field_long_wire"),
@@ -249,6 +308,13 @@ _TARGET_WORDS: dict[str, frozenset[str]] = {
     "coulomb_force_equilateral_three_identical": frozenset({"equilateral", "force"}),
     "parallel_plate_capacitance": frozenset({"capacitance", "farad"}),
     "parallel_plate_capacitance_dielectric": frozenset({"capacitance", "farad"}),
+    # F1 (Day-23) target-word guards for symbol-only fallback.
+    "magnetic_flux_solenoid_one_turn": frozenset({"flux", "weber"}),
+    "power_factor_from_r_z": frozenset({"factor", "cos"}),
+    "inductance_for_resonance": frozenset({"inductance", "henry"}),
+    "electric_field_from_force": frozenset({"field", "v/m", "intensity"}),
+    "inductance_from_inductor_energy": frozenset({"inductance", "henry"}),
+    "current_from_voltage_impedance": frozenset({"current", "ampere"}),
     "resultant_two_forces": frozenset({"resultant", "angle"}),
     "electric_field_point_charge": frozenset({"intensity", "strength", "magnitude"}),
     "ohm_law_voltage": frozenset({"voltage", "volt"}),
@@ -269,11 +335,45 @@ _TARGET_WORDS: dict[str, frozenset[str]] = {
 }
 
 
+# F2 (Day-23) — formulas that compute a FORCE in newtons. If the
+# question is clearly asking for an electric FIELD (V/m), don't let a
+# keyword like "equilateral triangle" route us into a Newton-output
+# formula. Audit Day-22: LD314 / LD396 / LD317 all hit this.
+_FORCE_FORMULAS: frozenset[str] = frozenset({
+    "coulomb_force",
+    "coulomb_force_at_midpoint",
+    "coulomb_force_perp_bisector",
+    "coulomb_force_equilateral_three_identical",
+    "resultant_two_forces",
+})
+_FIELD_ASK_TOKENS: tuple[str, ...] = (
+    "electric field intensity",
+    "electric field strength",
+    "electric field at",
+    "magnitude of the electric field",
+    "field intensity",
+    "field strength",
+    " v/m",
+    "(v/m)",
+    "volt/meter",
+    "volts per meter",
+)
+
+
+def _is_field_asking(question_lower: str) -> bool:
+    return any(tok in question_lower for tok in _FIELD_ASK_TOKENS)
+
+
 def _keyword_match(question: str) -> tuple[str, str] | None:
     lower = question.lower()
+    field_asked = _is_field_asking(lower)
     for keywords, formula_id in _KEYWORD_RULES:
         for kw in keywords:
             if kw in lower:
+                # F2 guard: never let a "force" formula win when the
+                # question is asking for a field — units mismatch.
+                if field_asked and formula_id in _FORCE_FORMULAS:
+                    continue
                 return formula_id, f"keyword '{kw}'"
     return None
 
