@@ -272,6 +272,28 @@ formulas:
       unit: "newton"
     expression: "4 * 8.9875517923e9 * Abs(q3) * (Abs(q1) + Abs(q2)) / d**2"
 
+  electric_field_two_opposite_charges_midpoint:
+    topic: LD
+    description: "Electric field at the midpoint M of two opposite-sign equal-magnitude charges (+q at A, −q at B, AB = d): the two fields point the same way (from + to −) and ADD → E = 8·k·|q|/d²"
+    inputs:
+      q: { unit: "coulomb", aliases: ["q1", "q2", "charge", "magnitude"] }
+      d: { unit: "meter",   aliases: ["AB", "separation", "distance"] }
+    output:
+      symbol: E
+      unit: "volt/meter"
+    expression: "8 * 8.9875517923e9 * Abs(q) / d**2"
+
+  impedance_from_voltage_current:
+    topic: CH
+    description: "RLC series impedance from RMS voltage and current: Z = U/I"
+    inputs:
+      U: { unit: "volt",   aliases: ["voltage", "V", "rms_voltage", "source_voltage"] }
+      I: { unit: "ampere", aliases: ["current", "rms_current"] }
+    output:
+      symbol: Z
+      unit: "ohm"
+    expression: "U / I"
+
   magnetic_flux_solenoid_one_turn:
     topic: DDT
     description: "Magnetic flux through one turn of a solenoid (or any single loop) given field B and area A: Φ = B·A"

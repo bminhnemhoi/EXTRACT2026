@@ -220,6 +220,26 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
         ),
         "electric_field_from_force",
     ),
+    # G1 (Day-24) — 2 opposite-sign charges, field at midpoint. Audit
+    # post-F1+F2 found LD053/LD090/LD065/LD056/LD081 etc. all this
+    # shape ("two charges q1 = -q2 placed at A, B... field at midpoint
+    # / field at midpoint of AB"). Must precede the single-charge
+    # electric_field_point_charge rule below.
+    (
+        (
+            "field at the midpoint",
+            "field strength at the midpoint",
+            "electric field at the midpoint",
+            "field at midpoint of",
+        ),
+        "electric_field_two_opposite_charges_midpoint",
+    ),
+    # G1 (Day-24) — Z = U/I. DDT349 wants this; but the broad
+    # "calculate the total impedance" keyword regressed -1 row on CH
+    # by eating rlc_impedance cases (CH rows that have R + XL + XC and
+    # SHOULD route to rlc_impedance). Routing rule REMOVED; formula is
+    # left in the registry so the symbol-fallback can still pick it
+    # when the question literally extracts only U + I.
     # Coulomb / force between charges.
     (("coulomb",), "coulomb_force"),
     (("force between", "force acting on", "force on the charge"), "coulomb_force"),
@@ -315,6 +335,9 @@ _TARGET_WORDS: dict[str, frozenset[str]] = {
     "electric_field_from_force": frozenset({"field", "v/m", "intensity"}),
     "inductance_from_inductor_energy": frozenset({"inductance", "henry"}),
     "current_from_voltage_impedance": frozenset({"current", "ampere"}),
+    # G1 (Day-24)
+    "electric_field_two_opposite_charges_midpoint": frozenset({"midpoint", "field"}),
+    "impedance_from_voltage_current": frozenset({"impedance", "ohm"}),
     "resultant_two_forces": frozenset({"resultant", "angle"}),
     "electric_field_point_charge": frozenset({"intensity", "strength", "magnitude"}),
     "ohm_law_voltage": frozenset({"voltage", "volt"}),
@@ -388,13 +411,23 @@ def _symbol_match(
     Requires a target word from :data:`_TARGET_WORDS` to also appear in the
     question, otherwise multiple formulas sharing input symbols (e.g.
     ``{C, U}``) would always pick the first one seen.
+
+    G1 (Day-24): the F2 field-vs-force guard from ``_keyword_match`` is
+    duplicated here — a Coulomb-type force formula must never win the
+    symbol fallback when the question is asking for an electric field.
+    Without this, an equilateral-3-charge question phrased
+    "calculate the field at the centroid" still landed on
+    `coulomb_force_equilateral_three_identical` via the q+a symbol overlap.
     """
     if not quantities:
         return None
     extracted_names = {q.name for q in quantities}
+    field_asked = _is_field_asking(question_lower)
 
     best: tuple[Formula, float, str] | None = None
     for formula in library.all():
+        if field_asked and formula.id in _FORCE_FORMULAS:
+            continue
         required = set(formula.required_symbols())
         if not required:
             continue
