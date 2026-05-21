@@ -25,7 +25,7 @@ The explanation is generated from the solver's trace, so it cannot diverge from 
   guards + state-change + symbol fallback) -> 6-pass role-aware regex extractor (chain
   equality, noun-of-value, "X cm away/apart", "has resistance / is at", "draws X A",
   ratio) with LLM fallback (N=3 self-consistency + TF-IDF RAG; unit pre-convert forbidden;
-  "x 10^N" scientific peel) -> pint normalisation (cm2/mm3 auto-fixed) -> **36-formula
+  "x 10^N" scientific peel) -> pint normalisation (cm2/mm3 / turns/m auto-fixed) -> **37-formula
   YAML registry** (capacitor/Coulomb/plate variants, E-field point/midpoint/perp-bisector,
   isoceles & right-triangle apex, voltage capacitor distance ratio Q-conserved, magnetic
   flux/solenoid/wire, RLC impedance/resonance/factor/power, Ohm's law, passthrough
@@ -46,13 +46,13 @@ T4, 1,765 pairs from 2026-05-09). Measured on a **163-row SFT-unseen** holdout o
 (`scripts/build_sft_unseen_holdout.py` fixes a 99% leakage in our prior holdout): single
 SFT-7B = 24.5% (-6.6pp LD regression, 5x latency); hybrid LD->3B + rest->SFT-7B = 30.1%.
 **Not deployed**: Q3 "one model resident" compliance + vLLM-LoRA stack is 1-2 days of risk
-that does not justify marginal lift over deterministic 36.8%.
+that does not justify marginal lift over deterministic 39.3%.
 
 ## Data & compliance
 
 Only the official EXACT2026 release **2026-05-15**. No external/synthetic/crawled data, no
-GPT/Claude/Gemini in the pipeline. See `docs/data_disclosure.pdf`. 265 automated tests; ruff
-+ mypy CI; 31 ADRs documenting every architectural decision and measurement.
+GPT/Claude/Gemini in the pipeline. See `docs/data_disclosure.pdf`. 268 automated tests; ruff
++ mypy CI; 32 ADRs documenting every architectural decision and measurement.
 
 ## Internal results (163-row SFT-unseen clean holdout, frozen unit-/round-aware scorer)
 
@@ -61,10 +61,10 @@ GPT/Claude/Gemini in the pipeline. See `docs/data_disclosure.pdf`. 265 automated
 | Day-1 rule-only / Day-21 honest baseline | 0.8% / 22.1% | 35.9% / 22.2% |
 | + F1+F2 audit + field-vs-force / F3+E5 selector+FOL loop | 27.6% | **23.5%** |
 | + Iter-3 architectural fixes (role-aware regex, state-change, boundary) | 33.1% | -- |
-| + Iter-4 routing/unit cleanup (cm2, scientific peel, perp-bisector field) | **36.8%** | -- |
-| + hybrid LD->3B + rest->SFT-7B (projected on iter-4, not deployed) | ~39.3% | -- |
+| + Iter-4 routing/unit cleanup (cm2, scientific peel, perp-bisector field) | 36.8% | -- |
+| + Iter-5 routing precedence + turns/m alias + Q*U/2 formula | **39.3%** | -- |
 
-Iter-4 prefix lift (vs 33.1%): TD 35->50%, DDT 25->31%, LD 38->40%. Cumulative vs 27.6%: +9.2pp.
+Iter-5 prefix lift (vs 36.8%): CH 31->38%, TD 50->54%; others flat. Cumulative vs 27.6%: +11.7pp deterministic, no SFT.
 
 Physics correctness uses strict value-and-unit match (pint dimension + 1% rel tolerance OR
 round-aware at gold's stated precision). The deterministic solver is exact where extraction
