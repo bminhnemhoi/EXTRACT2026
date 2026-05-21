@@ -60,21 +60,54 @@ def _truncate_split(split_path: Path, limit: int) -> Path:
     return tmp
 
 
-def _build_runner_arg(task: str, with_llm: bool):  # type: ignore[no-untyped-def]
-    """Return the solver/pipeline to inject, or None for the rule-only path."""
+def _build_runner_arg(task: str, with_llm: bool, ld_url: str | None = None):  # type: ignore[no-untyped-def]
+    """Return the solver/pipeline to inject, or None for the rule-only path.
+
+    ``ld_url`` (physics + ``--hybrid-ld-url``) wires a second LLM client
+    for LD-domain extractions; the solver routes per formula. The
+    ``default`` client still comes from ``configs/model.yaml`` /
+    EXACT_LLM__BASE_URL (so non-LD formulas use whatever the env says).
+    """
     if not with_llm:
         return None
     # Lazy imports: only touch the LLM stack when actually requested.
-    from exact_agent.llm.vllm_client import VLLMClient  # noqa: PLC0415
+    from exact_agent.llm.vllm_client import LLMConfig, VLLMClient  # noqa: PLC0415
 
-    client = VLLMClient()
+    default_client = VLLMClient()
     if task == "physics":
         from exact_agent.physics.solver import PhysicsSolver  # noqa: PLC0415
 
-        return PhysicsSolver(llm_client=client)
+        ld_client = None
+        if ld_url:
+            # Build the LD client from the *raw* model.yaml file so we
+            # get its model name verbatim (e.g. 'qwen2.5:3b-instruct'),
+            # NOT whatever EXACT_LLM__MODEL the env override set for the
+            # default client. Otherwise we'd be sending 'qwen2.5-7b' to
+            # Ollama 3B and getting 404.
+            import yaml as _yaml  # noqa: PLC0415
+
+            from exact_agent.config import get_settings  # noqa: PLC0415
+            with (get_settings().configs_dir / "model.yaml").open(encoding="utf-8") as f:
+                file_data = (_yaml.safe_load(f) or {}).get("llm", {}) or {}
+            ld_cfg = LLMConfig(
+                base_url=ld_url.rstrip("/"),
+                api_key=str(file_data.get("api_key", "local-no-auth")),
+                model=str(file_data.get("backbone", "qwen2.5:3b-instruct")),
+                max_tokens=int(file_data.get("max_tokens", 1024)),
+                temperature=float(file_data.get("temperature", 0.2)),
+                top_p=float(file_data.get("top_p", 0.9)),
+                timeout_s=float(file_data.get("timeout_s", 120)),
+                enable_lora=bool(file_data.get("enable_lora", False)),
+                lora_adapter_path=str(file_data.get("lora_adapter_path", "")),
+                mode=str(file_data.get("mode", "chat")).lower(),
+                disable_thinking=bool(file_data.get("disable_thinking", False)),
+            )
+            ld_client = VLLMClient(ld_cfg)
+            print(f"[info] hybrid LD client → {ld_url} (model={ld_cfg.model})")
+        return PhysicsSolver(llm_client=default_client, llm_client_ld=ld_client)
     from exact_agent.logic.pipeline import LogicPipeline  # noqa: PLC0415
 
-    return LogicPipeline(llm_client=client)
+    return LogicPipeline(llm_client=default_client)
 
 
 def main() -> int:
@@ -98,6 +131,18 @@ def main() -> int:
         help="Inject a VLLMClient so the LLM fallback paths fire (needs an endpoint).",
     )
     parser.add_argument(
+        "--hybrid-ld-url",
+        type=str,
+        default=None,
+        help=(
+            "Physics only. Second LLM endpoint for LD-domain extractions "
+            "(Coulomb/electric field). The default client comes from "
+            "configs/model.yaml or EXACT_LLM__BASE_URL; this flag adds a "
+            "non-LD/LD split so we can A/B a different backbone per domain. "
+            "Q3 sequential: only one client is invoked per query."
+        ),
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         default=0,
@@ -115,7 +160,7 @@ def main() -> int:
         split_path = _truncate_split(split_path, args.limit)
         print(f"[info] limited to first {args.limit} rows → {split_path.name}")
 
-    runner_arg = _build_runner_arg(args.task, args.with_llm)
+    runner_arg = _build_runner_arg(args.task, args.with_llm, ld_url=args.hybrid_ld_url)
     mode = "LLM-enabled" if args.with_llm else "rule-only"
     print(f"[info] evaluating {args.task} ({mode}) on {split_path.name} ...")
 

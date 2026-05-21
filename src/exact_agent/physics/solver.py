@@ -89,17 +89,37 @@ class PhysicsSolver:
     answer; SymPy still does.
     """
 
+    # Formula IDs whose questions empirically belong to the LD (electric
+    # force) domain — measured E7a A/B (ADR 0022): the SFT-7B adapter
+    # regressed -6.6pp on LD while lifting +5-11pp on CH/TD/DDT/NL, so
+    # the hybrid mode routes LD-domain extraction to the smaller base
+    # model. Q3 requires sequential per-query usage; the routing
+    # decision lands BEFORE the LLM call so only one model is invoked.
+    _LD_DOMAIN_FORMULAS: frozenset[str] = frozenset({
+        "coulomb_force",
+        "coulomb_force_at_midpoint",
+        "coulomb_force_perp_bisector",
+        "coulomb_force_equilateral_three_identical",
+        "electric_field_point_charge",
+        "resultant_two_forces",
+    })
+
     def __init__(
         self,
         library: FormulaLibrary | None = None,
         llm_client: LLMClient | None = None,
         *,
+        llm_client_ld: LLMClient | None = None,
         self_consistency_n: int | None = None,
         rag_examples_n: int | None = None,
         retriever: RagRetriever | None = None,
     ) -> None:
         self._library = library or default_library()
         self._llm = llm_client
+        # Hybrid routing: when ``llm_client_ld`` is provided, LD-domain
+        # formulas route to it; everything else uses ``llm_client``.
+        # When None, all extraction calls go through ``llm_client``.
+        self._llm_ld = llm_client_ld
         # E6 / E8: read defaults from configs/app.yaml::pipelines.physics
         # when callers don't override, so config-only A/B switches work.
         if self_consistency_n is None or rag_examples_n is None:
@@ -261,7 +281,10 @@ class PhysicsSolver:
         didn't cover every required input. The trace is updated either
         way so the explanation can quote the recovery attempt.
         """
-        if self._llm is None:
+        # Hybrid routing decision (E7a/ADR 0022): pick the right client
+        # for THIS formula. Only ONE client invoked per query → Q3-safe.
+        client = self._client_for_formula(formula.id)
+        if client is None:
             return None
         n = self._self_consistency_n
         # E8: retrieve few-shot demos for THIS query when RAG is on.
@@ -276,7 +299,7 @@ class PhysicsSolver:
         try:
             if n > 1:
                 recovered, votes = extract_with_llm_self_consistent(
-                    question, formula, self._llm, n_votes=n, examples=examples,
+                    question, formula, client, n_votes=n, examples=examples,
                 )
                 names = ", ".join(
                     f"{q.name}={q.value} {q.unit} ({votes[q.name]}/{n} votes)"
@@ -285,7 +308,7 @@ class PhysicsSolver:
                 trace.append(f"LLM extractor (self-consistent N={n}): {names}")
             else:
                 recovered = extract_with_llm(
-                    question, formula, self._llm, examples=examples,
+                    question, formula, client, examples=examples,
                 )
                 names = ", ".join(f"{q.name}={q.value} {q.unit}" for q in recovered)
                 trace.append(f"LLM extractor recovered: {names}")
@@ -293,6 +316,13 @@ class PhysicsSolver:
             trace.append(f"LLM extractor failed: {exc}")
             return None
         return recovered
+
+    def _client_for_formula(self, formula_id: str) -> LLMClient | None:
+        """Hybrid dispatcher (E7a). LD-domain → ``llm_client_ld`` when set;
+        everything else → ``llm_client``. Falls back gracefully if either is None."""
+        if formula_id in self._LD_DOMAIN_FORMULAS and self._llm_ld is not None:
+            return self._llm_ld
+        return self._llm
 
     @staticmethod
     def _resolve_alias(
