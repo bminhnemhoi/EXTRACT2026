@@ -283,6 +283,27 @@ formulas:
       unit: "volt/meter"
     expression: "8 * 8.9875517923e9 * Abs(q) / d**2"
 
+  # Iter-4 Fix D: 2 opposite-sign charges +q1 at A, −q2 at B with AB = d.
+  # M lies on the perpendicular bisector of AB, distance l from the midpoint
+  # (so MA = MB = r = sqrt((d/2)² + l²)). With opposite signs the two
+  # field vectors' horizontal-from-AB components ADD and vertical components
+  # subtract by |q1|−|q2|. The general magnitude is
+  #   E = (k / r³) · sqrt(((|q1|+|q2|)·d/2)² + ((|q1|−|q2|)·l)²)
+  # Equal-magnitude reduces to E = k·|q|·d / r³ (LD065/099/100); unequal
+  # is LD340. Verified algebraically against the four pinned gold answers.
+  electric_field_perp_bisector_two_opposite:
+    topic: LD
+    description: "Electric field at point M on the perpendicular bisector of two opposite-sign charges (+q1 at A, −q2 at B, separation d, perp distance l from midpoint): E = k·sqrt(((|q1|+|q2|)·d/2)² + ((|q1|−|q2|)·l)²) / ((d/2)² + l²)^1.5"
+    inputs:
+      q1: { unit: "coulomb" }
+      q2: { unit: "coulomb" }
+      d:  { unit: "meter",  aliases: ["AB", "separation"] }
+      l:  { unit: "meter",  aliases: ["distance", "perp_distance"] }
+    output:
+      symbol: E
+      unit: "volt/meter"
+    expression: "8.9875517923e9 * sqrt(((Abs(q1)+Abs(q2))*d/2)**2 + ((Abs(q1)-Abs(q2))*l)**2) / ((d/2)**2 + l**2)**1.5"
+
   impedance_from_voltage_current:
     topic: CH
     description: "RLC series impedance from RMS voltage and current: Z = U/I"

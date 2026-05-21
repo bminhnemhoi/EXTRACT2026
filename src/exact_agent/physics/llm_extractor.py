@@ -20,6 +20,7 @@ back cleanly when no consensus exists.
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from collections.abc import Sequence
 from typing import Any
@@ -29,6 +30,47 @@ from exact_agent.llm.vllm_client import LLMClient, parse_json_completion
 from exact_agent.physics.formula_library import Formula
 from exact_agent.physics.quantity_extractor import ExtractedQuantity
 from exact_agent.physics.rag_retriever import WorkedExample
+
+# LLMs (even with the prompt's explicit ban on conversion) sometimes paste
+# the question's mantissa-times-power back into the *unit* field, e.g.
+# ``{"value": 3.6, "unit": "x 10^-6 C"}`` or ``"unit": "× 10⁻⁶ C"``.
+# pint then rejects ``cannot convert 3.6 'x 10^-6 C'``. This regex peels
+# the scientific multiplier off the unit and folds it into the value so
+# the downstream pint convert sees a clean ``"C"``.
+_UNIT_SCIENTIFIC_RE = re.compile(
+    r"""^\s*
+    [x×*·]?\s*           # optional multiplier glyph
+    10\s*
+    (?:\*\*|\^|)\s*      # ^ or ** or implicit
+    (?P<exp>-?\d+|⁻?[⁰¹²³⁴⁵⁶⁷⁸⁹]+)
+    \s*(?P<rest>\S.*)?$  # remaining unit
+    """,
+    re.VERBOSE,
+)
+
+# Unicode superscript digits → ASCII for exponent parsing.
+_SUPERSCRIPT_DIGITS = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹⁻", "0123456789-")
+
+
+def _peel_scientific_from_unit(value: float, unit: str) -> tuple[float, str]:
+    """Detach a leading ``× 10^N`` factor from ``unit``, fold into ``value``.
+
+    Returns ``(value, unit)`` unchanged if no scientific prefix detected.
+    Tolerates ``x 10^-6``, ``× 10⁻⁶``, ``*10^6`` and the bare-superscript
+    forms emitted by Qwen-2.5 when it pastes the question's mantissa.
+    """
+    m = _UNIT_SCIENTIFIC_RE.match(unit)
+    if not m:
+        return value, unit
+    exp_str = m.group("exp").translate(_SUPERSCRIPT_DIGITS)
+    try:
+        exp = int(exp_str)
+    except ValueError:
+        return value, unit
+    rest = (m.group("rest") or "").strip()
+    if not rest:
+        return value, unit  # bare "10^N" with no unit isn't recoverable
+    return value * (10.0**exp), rest
 
 
 class LLMExtractionError(RuntimeError):
@@ -93,14 +135,15 @@ def extract_with_llm(
         except (KeyError, TypeError, ValueError):
             missing.append(symbol)
             continue
-        unit = str(node.get("unit") or "").strip()
+        raw_unit = str(node.get("unit") or "").strip()
+        value, unit = _peel_scientific_from_unit(value, raw_unit)
         quantities.append(
             ExtractedQuantity(
                 name=symbol,
                 value=value,
                 unit=unit,
                 raw_value=str(node.get("value")),
-                raw_unit=unit,
+                raw_unit=raw_unit,
             )
         )
 

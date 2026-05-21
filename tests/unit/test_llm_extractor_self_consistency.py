@@ -10,6 +10,7 @@ from exact_agent.llm.vllm_client import MockLLMClient
 from exact_agent.physics.formula_library import default_library
 from exact_agent.physics.llm_extractor import (
     LLMExtractionError,
+    _peel_scientific_from_unit,
     extract_with_llm_self_consistent,
 )
 
@@ -83,3 +84,23 @@ class TestSelfConsistencyVote:
         names = {q.name: q for q in out}
         assert abs(names["U"].value - 30.0) < 0.3
         assert votes["U"] == 2
+
+
+class TestUnitScientificPeel:
+    """Iter-4 Fix B: scientific multiplier glyphs in the unit field must be peeled."""
+
+    @pytest.mark.parametrize(
+        ("raw_unit", "expected_value", "expected_unit"),
+        [
+            ("× 10^-6 C", 3.6e-6, "C"),    # U+00D7 MULTIPLICATION SIGN
+            ("x 10^-6 C", 3.6e-6, "C"),
+            ("*10^6 V/m", 3.6e6, "V/m"),
+            ("× 10⁻⁶ C", 3.6e-6, "C"),  # Unicode superscript -6
+            ("C", 3.6, "C"),                  # already-clean unit untouched
+            ("μF", 3.6, "μF"),      # wrong-dimension stays raw
+        ],
+    )
+    def test_peel(self, raw_unit: str, expected_value: float, expected_unit: str) -> None:
+        v, u = _peel_scientific_from_unit(3.6, raw_unit)
+        assert abs(v - expected_value) / max(abs(expected_value), 1e-30) < 1e-9
+        assert u == expected_unit

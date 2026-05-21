@@ -28,6 +28,21 @@ class TestNormalize:
     def test_replaces_middot_and_superscript_inv(self) -> None:
         assert normalize_unit_string("V·m⁻¹") == "V*m**-1"
 
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("cm2", "cm**2"),
+            ("cm3", "cm**3"),
+            ("m2", "m**2"),
+            ("mm2", "mm**2"),
+            ("km2", "km**2"),
+        ],
+    )
+    def test_no_superscript_area_volume_forms(self, raw: str, expected: str) -> None:
+        # LLMs frequently emit ``cm2`` rather than ``cm**2``; pint rejects
+        # the former. Iter-4 Fix A unblocks the TD parallel-plate slice.
+        assert normalize_unit_string(raw) == expected
+
 
 class TestConvert:
     @pytest.mark.parametrize(

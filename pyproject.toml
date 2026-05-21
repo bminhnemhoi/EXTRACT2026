@@ -110,6 +110,8 @@ ignore = [
 "tests/unit/test_unit_converter.py" = ["RUF001", "RUF002", "RUF003"]
 "tests/unit/test_metrics.py" = ["RUF001", "RUF002", "RUF003"]
 "tests/unit/test_question_cleaner.py" = ["RUF001", "RUF002", "RUF003"]
+# Iter-4: tests the LLM extractor's handling of glyphs the model emits.
+"tests/unit/test_llm_extractor_self_consistency.py" = ["RUF001", "RUF002", "RUF003"]
 "tests/unit/test_rag_retriever.py" = ["RUF001", "RUF002", "RUF003", "E501"]
 "scripts/iterate_10_failing.py" = ["RUF001", "RUF002", "RUF003"]
 

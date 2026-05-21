@@ -148,6 +148,20 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
         ),
         "dielectric_constant_from_capacitance",
     ),
+    # Iter-4 Fix C (TD025/043/079/191): "An air-filled parallel-plate
+    # capacitor HAS A CAPACITANCE OF X pF and is charged to Y V. Calculate
+    # the electric field energy" must route to capacitor_energy (uses the
+    # given C and U directly), NOT parallel_plate_capacitance (which
+    # asks for A and d that the question doesn't give). The phrase
+    # "electric field energy" is the unambiguous intent marker.
+    (
+        (
+            "calculate the electric field energy stored",
+            "calculate the electric field energy in",
+            "electric field energy stored in the capacitor",
+        ),
+        "capacitor_energy",
+    ),
     # Parallel-plate geometry capacitance — area + separation given.
     # MUST precede the "calculate its capacitance" rule below so a
     # geometry problem doesn't fall into the energy/voltage formula.
@@ -248,6 +262,16 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (
         ("at the midpoint", "midpoint of the line segment", "midpoint o"),
         "coulomb_force_at_midpoint",
+    ),
+    # Iter-4 Fix D: perpendicular-bisector 2-opposite-charge FIELD problems
+    # (LD065/099/100/340). MUST precede the force perp-bisector rule below
+    # because field_asked makes the force rule skip, leaving symbol-fallback
+    # to land on single-charge field formula (which only uses one q -> 100%
+    # off). The F2 field guard inside _keyword_match also skips this rule
+    # when force_asked, so collinear/force questions retain the force rule.
+    (
+        ("perpendicular bisector",),
+        "electric_field_perp_bisector_two_opposite",
     ),
     (
         ("perpendicular bisector",),
@@ -452,6 +476,7 @@ _TARGET_WORDS: dict[str, frozenset[str]] = {
     "current_from_voltage_impedance": frozenset({"current", "ampere"}),
     # G1 (Day-24)
     "electric_field_two_opposite_charges_midpoint": frozenset({"midpoint", "field"}),
+    "electric_field_perp_bisector_two_opposite": frozenset({"bisector", "field"}),
     "impedance_from_voltage_current": frozenset({"impedance", "ohm"}),
     # Iter-1/2 (Day-25)
     "dielectric_constant_from_capacitance": frozenset({"dielectric", "constant", "permittivity"}),
@@ -493,6 +518,30 @@ _FORCE_FORMULAS: frozenset[str] = frozenset({
     "coulomb_force_equilateral_three_identical",
     "resultant_two_forces",
 })
+# Iter-4 Fix D — the inverse guard. Symmetric to _FORCE_FORMULAS so a
+# "calculate the net force" question doesn't trip a field-output formula
+# (V/m would be marked unit-wrong vs gold N).
+_FIELD_FORMULAS: frozenset[str] = frozenset({
+    "electric_field_point_charge",
+    "electric_field_two_opposite_charges_midpoint",
+    "electric_field_perp_bisector_two_opposite",
+    "electric_field_from_force",
+})
+_FORCE_ASK_TOKENS: tuple[str, ...] = (
+    "net force",
+    "resultant force",
+    "force acting on",
+    "force on the charge",
+    "force exerted on",
+    "magnitude of the force",
+    "magnitude of the net force",
+    "find the force",
+    "calculate the force",
+    "what is the force",
+    "find the net",      # "find the net force/charge/etc." — broad but field
+    " newton",            # rules already exclude on "field" tokens above.
+    "(unit: n)",
+)
 _FIELD_ASK_TOKENS: tuple[str, ...] = (
     "electric field intensity",
     "electric field strength",
@@ -511,15 +560,26 @@ def _is_field_asking(question_lower: str) -> bool:
     return any(tok in question_lower for tok in _FIELD_ASK_TOKENS)
 
 
+def _is_force_asking(question_lower: str) -> bool:
+    return any(tok in question_lower for tok in _FORCE_ASK_TOKENS)
+
+
 def _keyword_match(question: str) -> tuple[str, str] | None:
     lower = question.lower()
     field_asked = _is_field_asking(lower)
+    force_asked = _is_force_asking(lower)
     for keywords, formula_id in _KEYWORD_RULES:
         for kw in keywords:
             if kw in lower:
                 # F2 guard: never let a "force" formula win when the
                 # question is asking for a field — units mismatch.
                 if field_asked and formula_id in _FORCE_FORMULAS:
+                    continue
+                # Iter-4 Fix D mirror: never let a "field" formula win
+                # when force is asked — e.g. "perpendicular bisector"
+                # paired with "calculate the net force" must stay on
+                # coulomb_force_perp_bisector, not the field variant.
+                if force_asked and formula_id in _FIELD_FORMULAS:
                     continue
                 return formula_id, f"keyword '{kw}'"
     return None
@@ -547,10 +607,13 @@ def _symbol_match(
         return None
     extracted_names = {q.name for q in quantities}
     field_asked = _is_field_asking(question_lower)
+    force_asked = _is_force_asking(question_lower)
 
     best: tuple[Formula, float, str] | None = None
     for formula in library.all():
         if field_asked and formula.id in _FORCE_FORMULAS:
+            continue
+        if force_asked and formula.id in _FIELD_FORMULAS:
             continue
         required = set(formula.required_symbols())
         if not required:

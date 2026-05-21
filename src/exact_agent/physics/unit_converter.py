@@ -14,9 +14,17 @@ the conversion step ("convert C to 0.0001 F").
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 import pint
+
+# Recognises plain-digit area/volume forms like ``cm2``, ``mm3``, ``m2``
+# (commonly emitted by LLMs and copy-paste from PDFs that strip the Unicode
+# superscript). pint requires ``cm**2`` / ``cm^2``; this regex inserts the
+# missing exponentiation marker without touching legitimate dimensionless
+# tokens (``cm2per`` would only match the ``cm2`` head as desired).
+_AREA_VOLUME_NORM = re.compile(r"\b(cm|mm|m|km|dm|nm)([23])\b")
 
 # Lazily-initialised module-level registry. pint is heavy to construct.
 # Held in a dict to avoid the `global` statement (ruff PLW0603).
@@ -56,6 +64,10 @@ def get_registry() -> pint.UnitRegistry:
 def normalize_unit_string(raw: str) -> str:
     """Replace Unicode glyphs with pint-friendly ASCII before parsing."""
     text = raw.strip()
+    # Normalise no-superscript area/volume forms first (``cm2`` -> ``cm**2``)
+    # so the alias loop can still convert legitimate Unicode superscripts
+    # without double-applying.
+    text = _AREA_VOLUME_NORM.sub(r"\1**\2", text)
     for needle, replacement in _UNIT_ALIASES.items():
         text = text.replace(needle, replacement)
     return text.strip()
