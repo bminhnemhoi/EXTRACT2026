@@ -383,6 +383,72 @@ formulas:
       unit: "farad"
     expression: "8.8541878128e-12 * epsilon_r * A / d"
 
+  dielectric_constant_from_capacitance:
+    topic: TD
+    description: "Iter-1 (Day-25): solve relative permittivity ε_r from C, A, d (inverse of parallel_plate_capacitance_dielectric): ε_r = C·d/(ε₀·A)"
+    inputs:
+      C: { unit: "farad",     aliases: ["capacitance"] }
+      A: { unit: "meter ** 2", aliases: ["area", "plate_area", "S"] }
+      d: { unit: "meter",     aliases: ["separation", "plate_separation", "distance", "gap"] }
+    output:
+      symbol: epsilon_r
+      unit: "dimensionless"
+    expression: "C * d / (8.8541878128e-12 * A)"
+
+  coulomb_force_on_charge_between_two_identical:
+    topic: LD
+    description: "Iter-1 (Day-25 LD025): net Coulomb force on a charge q3 located on the line segment between two identical same-sign source charges (q1 = q2 = q), at distance r1 from q1 (so r2 = AB - r1 from q2). Forces point in opposite directions and the net magnitude is k·|q3·q|·|1/r1² − 1/r2²|."
+    inputs:
+      q:  { unit: "coulomb", aliases: ["q1", "q2", "source_charge", "charge"] }
+      q3: { unit: "coulomb", aliases: ["test_charge", "q_test"] }
+      r1: { unit: "meter",   aliases: ["distance_from_q1", "distance"] }
+      r2: { unit: "meter",   aliases: ["distance_from_q2", "AB_minus_r1"] }
+    output:
+      symbol: F
+      unit: "newton"
+    expression: "8.9875517923e9 * Abs(q3*q) * Abs(1/r1**2 - 1/r2**2)"
+
+  coulomb_force_collinear_opposite_signs:
+    topic: LD
+    description: "Iter-2 (Day-25 LD026): net Coulomb force on q3 between two OPPOSITE-sign source charges q1 at A and q2 at B (q1·q2 < 0), where C is between A and B with CA = r1 and CB = r2. The two source forces on q3 point in the SAME direction (one repels, the other attracts), so they ADD: F = k·|q3|·(|q1|/r1² + |q2|/r2²)."
+    inputs:
+      q1: { unit: "coulomb", aliases: ["charge1", "source1"] }
+      q2: { unit: "coulomb", aliases: ["charge2", "source2"] }
+      q3: { unit: "coulomb", aliases: ["test_charge", "q_test"] }
+      r1: { unit: "meter",   aliases: ["CA", "distance_from_q1"] }
+      r2: { unit: "meter",   aliases: ["CB", "distance_from_q2"] }
+    output:
+      symbol: F
+      unit: "newton"
+    expression: "8.9875517923e9 * Abs(q3) * (Abs(q1)/r1**2 + Abs(q2)/r2**2)"
+
+  coulomb_force_two_opposite_sources_isoceles_apex:
+    topic: DT
+    description: "Iter-1 (Day-25 DT005): force on test charge q3 at apex C of an isoceles triangle ABC (AC = BC = r) where A and B carry opposite-sign equal-magnitude source charges (q1 at A, −q1 at B) separated by AB = d. Both source-field components along AB add; component perpendicular cancels. Net: F = k·|q1·q3|·d/r³."
+    inputs:
+      q1: { unit: "coulomb", aliases: ["q", "source_charge", "charge"] }
+      q3: { unit: "coulomb", aliases: ["test_charge", "q_test"] }
+      d:  { unit: "meter",   aliases: ["AB", "separation"] }
+      r:  { unit: "meter",   aliases: ["AC", "BC", "side", "equal_distance"] }
+    output:
+      symbol: F
+      unit: "newton"
+    expression: "8.9875517923e9 * Abs(q1*q3) * d / r**3"
+
+  coulomb_force_two_sources_right_triangle_apex:
+    topic: DT
+    description: "Iter-1 (Day-25 DT006): force on test charge q3 at apex C of a RIGHT triangle ABC (right angle at C: AC² + BC² = AB²) with sources q1 at A and q2 at B. The two source-fields at C are perpendicular, so |F_net| = |q3|·√((k|q1|/AC²)² + (k|q2|/BC²)²)."
+    inputs:
+      q1: { unit: "coulomb", aliases: ["source1", "charge1"] }
+      q2: { unit: "coulomb", aliases: ["source2", "charge2"] }
+      q3: { unit: "coulomb", aliases: ["test_charge", "q_test"] }
+      AC: { unit: "meter",   aliases: ["distance_AC", "rA"] }
+      BC: { unit: "meter",   aliases: ["distance_BC", "rB"] }
+    output:
+      symbol: F
+      unit: "newton"
+    expression: "Abs(q3) * sqrt((8.9875517923e9 * Abs(q1) / AC**2)**2 + (8.9875517923e9 * Abs(q2) / BC**2)**2)"
+
   coulomb_force_equilateral_three_identical:
     topic: LD
     description: "Net Coulomb force on any one of three identical charges at the vertices of an equilateral triangle with side a: F = sqrt(3)·k·|q|²/a² (two equal sources at 60° → resultant magnitude F·√3 where F is the pairwise force)"

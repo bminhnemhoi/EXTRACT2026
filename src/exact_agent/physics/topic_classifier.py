@@ -102,6 +102,19 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
         ),
         "voltage_from_energy_capacitance",
     ),
+    # Iter-2 (Day-25 TD013): inverse direction — solve ε_r given C, A, d.
+    # MUST precede parallel_plate_capacitance_dielectric because both
+    # rules match the same "dielectric" wording but the INTENT differs.
+    (
+        (
+            "what is the dielectric constant",
+            "calculate the dielectric constant",
+            "find the dielectric constant",
+            "determine the dielectric constant",
+            "what is the relative permittivity",
+        ),
+        "dielectric_constant_from_capacitance",
+    ),
     # Parallel-plate geometry capacitance — area + separation given.
     # MUST precede the "calculate its capacitance" rule below so a
     # geometry problem doesn't fall into the energy/voltage formula.
@@ -134,6 +147,18 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
             "calculate the capacitance (unit: uf",
         ),
         "capacitance_from_energy_voltage",
+    ),
+    # Iter-1 NL005: solve U from W and C (capacitor). Must precede the
+    # capacitor_energy rule below (which fires on "electric field energy"
+    # too eagerly otherwise). Output is voltage, so verify the question
+    # asks for voltage/potential difference explicitly.
+    (
+        (
+            "calculate the potential difference (unit: v)",
+            "calculate the voltage (unit: v)",
+            "potential difference (unit: v) between",
+        ),
+        "voltage_from_energy_capacitance",
     ),
     (
         (
@@ -195,6 +220,53 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
         ("perpendicular bisector",),
         "coulomb_force_perp_bisector",
     ),
+    # Iter-2 (Day-25 LD026): q3 on segment between OPPOSITE-sign q1, q2
+    # (CA and CB explicit). Forces add. MUST precede LD025 same-sign rule
+    # below because "ca = 4 cm" / "cb = 2 cm" is the discriminator.
+    (
+        (
+            "ca =",
+            "cb =",
+            "ca=",
+            "cb=",
+        ),
+        "coulomb_force_collinear_opposite_signs",
+    ),
+    # Iter-1 (Day-25 LD025): q3 on the line segment between q1 and q2
+    # ("positioned along the line connecting q1 and q2", "when it is
+    # X cm away from q1"). Net force is k·|q3·q|·|1/r1² - 1/r2²|.
+    # Must precede generic coulomb_force.
+    (
+        (
+            "positioned along the line connecting",
+            "positioned on the line segment",
+            "positioned along the segment",
+            "when it is",  # narrow: usually follows "X cm away from q1"
+        ),
+        "coulomb_force_on_charge_between_two_identical",
+    ),
+    # Iter-1 (Day-25 DT005): isoceles triangle with AC = BC, ±q1 sources
+    # at A and B, test charge q3 at C. Closed form F = k·|q1·q3|·AB/r³.
+    (
+        (
+            "ac = bc",
+            "ac=bc",
+            "given that ac = bc",
+        ),
+        "coulomb_force_two_opposite_sources_isoceles_apex",
+    ),
+    # Iter-1 (Day-25 DT006): right triangle at C (AC² + BC² = AB²).
+    # General sources q1, q2; test charge q3 at C. F = q3·sqrt(E1²+E2²).
+    # Keyword: "AC = X and BC = Y" without AC=BC (caught by above first).
+    (
+        (
+            "and bc =",
+            "ac = 12 cm and bc",
+            "ac = 16 cm and bc",
+        ),
+        "coulomb_force_two_sources_right_triangle_apex",
+    ),
+    # (TD013 rule moved above the parallel_plate_capacitance_dielectric block)
     # 3 identical charges at vertices of an equilateral triangle → vector
     # sum of two equal pairwise forces at 60° gives F·√3. MUST also
     # precede generic coulomb_force. Day-22 E10 audit (LD295, LD130,
@@ -290,6 +362,16 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
         ),
         "inductance_from_inductor_energy",
     ),
+    # Iter-1 (Day-25 NL007): "magnetic field energy ... calculate the current"
+    # — inductor energy → current via I = sqrt(2W/L). Formula already exists.
+    (
+        (
+            "magnetic field energy",
+            "magnetic energy",
+        ),
+        "current_from_inductor_energy",
+    ),
+    # (NL005 routing moved above the capacitor_energy block; see comment there)
     # F1 new — current from voltage and impedance. RLC-DDT339-style.
     (
         ("calculate the rms current", "calculate the current i in the circuit"),
@@ -338,6 +420,12 @@ _TARGET_WORDS: dict[str, frozenset[str]] = {
     # G1 (Day-24)
     "electric_field_two_opposite_charges_midpoint": frozenset({"midpoint", "field"}),
     "impedance_from_voltage_current": frozenset({"impedance", "ohm"}),
+    # Iter-1/2 (Day-25)
+    "dielectric_constant_from_capacitance": frozenset({"dielectric", "constant", "permittivity"}),
+    "coulomb_force_on_charge_between_two_identical": frozenset({"force", "newton"}),
+    "coulomb_force_two_opposite_sources_isoceles_apex": frozenset({"force", "newton"}),
+    "coulomb_force_two_sources_right_triangle_apex": frozenset({"force", "newton"}),
+    "coulomb_force_collinear_opposite_signs": frozenset({"force", "newton"}),
     "resultant_two_forces": frozenset({"resultant", "angle"}),
     "electric_field_point_charge": frozenset({"intensity", "strength", "magnitude"}),
     "ohm_law_voltage": frozenset({"voltage", "volt"}),

@@ -152,7 +152,10 @@ _NOUN_ALT = "|".join(
     re.escape(n) for n in sorted(_NOUN_TO_VAR.keys(), key=len, reverse=True)
 )
 _OF_PATTERN_RE = re.compile(
-    rf"(?P<noun>{_NOUN_ALT})\s+of\s+(?:magnitude\s+)?(?P<value>{_NUMBER})\s*(?P<unit>{_UNIT})?",
+    # Allow an optional parenthetical between noun and "of" — e.g.
+    # "inductance (L) of 0.3 H" — common annotation in physics prose.
+    rf"(?P<noun>{_NOUN_ALT})\s*(?:\([^)]+\))?\s+of\s+(?:magnitude\s+)?"
+    rf"(?P<value>{_NUMBER})\s*(?P<unit>{_UNIT})?",
     re.IGNORECASE | re.UNICODE,
 )
 
