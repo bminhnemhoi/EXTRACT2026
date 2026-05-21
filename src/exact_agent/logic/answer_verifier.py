@@ -95,6 +95,28 @@ def verify_yes_no(question: str, chain: ChainResult, *, threshold: float = 0.4) 
 
 _OPTION_RE = re.compile(r"^([A-D])\.\s+(.+)$")
 
+# K (Day-25): question phrasings that signal "premises may not determine a
+# unique option" — exactly the 168 retained MCQ-Unknown rows in
+# CHANGELOG_TYPE1. Audit on the 81-row logic holdout found 12 such
+# rows classified as MC by structure but with gold = "Unknown". For
+# these, we raise the MC commit threshold sharply so the verifier
+# returns "Unknown" instead of guessing the highest-overlap option.
+_INFERENCE_PHRASES: tuple[str, ...] = (
+    "can be inferred",
+    "can be logically inferred",
+    "which conclusion is correct",
+    "which statement is correct",
+    "which statement can be",
+    "which of the following can be inferred",
+    "which conclusion can be",
+    "which of the following conclusions",
+)
+
+
+def _is_inference_phrased(question: str) -> bool:
+    lower = question.lower()
+    return any(p in lower for p in _INFERENCE_PHRASES)
+
 
 def _parse_options(question: str, choices: dict[str, str] | None) -> list[tuple[str, str]]:
     """Return ``[(label, text), ...]`` parsed from the question or choices dict."""
@@ -144,6 +166,15 @@ def verify_multiple_choice(
             rationale="No multiple-choice options parsed.",
             confidence=0.2,
         )
+
+    # K (Day-25) — tighten abstention for "can be inferred / which
+    # statement is correct" style. These are the MCQ-Unknown rows where
+    # the premises don't determine a unique option; default-low
+    # min_top_score commits to a letter and gets the gold "Unknown"
+    # wrong. Raise the bar; the verifier only commits if some option
+    # has solid (>=0.25) chain overlap.
+    if _is_inference_phrased(question) and min_top_score < 0.25:
+        min_top_score = 0.25
 
     scored: list[tuple[str, float, tuple[int, ...]]] = []
     for label, text in options:
