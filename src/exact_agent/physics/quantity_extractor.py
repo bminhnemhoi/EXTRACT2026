@@ -111,6 +111,58 @@ _CHAIN_EQ_RE = re.compile(
 # G3 prose: "<noun> of <value> <unit>" — many questions describe the
 # quantity in words rather than equations. The noun list maps to
 # canonical variable names downstream formulas expect.
+# Iter-3 (Day-25) — state-change ratio extractor. "distance ... is doubled" /
+# tripled / halved / quadrupled — common phrasing for capacitor-state problems
+# (TD010). Maps the verbal scaling word to a dimensionless `ratio` quantity.
+_DISTANCE_RATIO_WORDS: dict[str, float] = {
+    "doubled": 2.0,
+    "tripled": 3.0,
+    "quadrupled": 4.0,
+    "halved": 0.5,
+    "quartered": 0.25,
+}
+_DISTANCE_RATIO_RE = re.compile(
+    r"(?:distance|separation|gap)[^.]*?\b(?P<word>"
+    + "|".join(_DISTANCE_RATIO_WORDS) + r")\b",
+    re.IGNORECASE,
+)
+
+# Iter-3 — "<N> V power source" / "connected to a <N> V source" → V1.
+_POWER_SOURCE_RE = re.compile(
+    r"(?:connected to|across)\s+(?:a\s+)?(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>V|volts?)\b",
+    re.IGNORECASE,
+)
+
+# Iter-3 — "has resistance 8 Ω" / "has voltage 4 V" — noun WITHOUT "of".
+# Limited to safe nouns to avoid catching "has plate area 30" which is
+# already handled by _OF_PATTERN. The "has" prefix anchors intent.
+_HAS_NOUN_RE = re.compile(
+    r"\bhas\s+(?P<noun>resistance|capacitance|inductance|voltage|current)\s+"
+    r"(?P<value>\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)\s*"
+    rf"(?P<unit>{_UNIT})?",
+    re.IGNORECASE,
+)
+_HAS_NOUN_MAP: dict[str, str] = {
+    "resistance":  "R",
+    "capacitance": "C",
+    "inductance":  "L",
+    "voltage":     "U",
+    "current":     "I",
+}
+
+# Iter-3 — "is at 4V" / "is at 4 V" — voltage anchored after "is at".
+_IS_AT_VOLT_RE = re.compile(
+    r"\bis\s+at\s+(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>V|volts?)\b",
+    re.IGNORECASE,
+)
+
+# Iter-3 — "lamp D2 draws 0.5 A" / "draws X A" → I_remaining (THCB070).
+_DRAWS_RE = re.compile(
+    r"\bdraws\s+(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>A|amps?|amperes?)\b",
+    re.IGNORECASE,
+)
+
+
 _NOUN_TO_VAR: dict[str, str] = {
     "force":               "F",
     "voltage":             "U",
@@ -158,6 +210,40 @@ _OF_PATTERN_RE = re.compile(
     rf"(?P<value>{_NUMBER})\s*(?P<unit>{_UNIT})?",
     re.IGNORECASE | re.UNICODE,
 )
+
+# Iter-3 (Day-25): role-aware geometry extractors. The previous noun-of
+# pattern catches scalar nouns ("voltage of X V") but loses GEOMETRY —
+# "X cm away from q1" and "X cm apart" are role-bearing phrases. Without
+# these, regex misses r1/r2 (the per-source distances for a 3-charge
+# Coulomb question) and AB (the source separation in a 2-source isoceles/
+# right-triangle question). LLM fallback then guesses and sometimes
+# pre-converts units wrongly (the LD025 0.04 -> 0.004 bug). Catching them
+# here keeps extraction in the deterministic regex path.
+
+# "X cm/mm/m away from q1" / "from A" → role r1 (if ref∈{q1,A}) or r2 (if ref∈{q2,B}).
+_AWAY_FROM_RE = re.compile(
+    r"(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>cm|mm|m)\s+(?:away\s+)?from\s+"
+    r"(?P<ref>q[0-9A-D]|q_?\d+|[A-D]\b)",
+    re.IGNORECASE,
+)
+
+# "X cm apart" / "X cm long" → source separation AB (no ref token).
+_APART_RE = re.compile(
+    r"(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>cm|mm|m)\s+(?:apart|long)\b",
+    re.IGNORECASE,
+)
+
+
+def _ref_to_role(ref: str) -> str | None:
+    """Map a reference token to a canonical role variable name."""
+    r = ref.lower().replace("_", "")
+    if r in ("q1", "a"):
+        return "r1"
+    if r in ("q2", "b"):
+        return "r2"
+    if r in ("q3", "c"):
+        return "r3"
+    return None
 
 
 @dataclass(frozen=True)
@@ -208,7 +294,7 @@ _UNIT_BLOCKLIST: frozenset[str] = frozenset(
 )
 
 
-def extract_quantities(text: str) -> list[ExtractedQuantity]:
+def extract_quantities(text: str) -> list[ExtractedQuantity]:  # noqa: PLR0912, PLR0915
     """Return all ``name = value unit`` triples found in ``text``.
 
     Three passes (in order; later passes don't overwrite earlier names):
@@ -295,6 +381,136 @@ def extract_quantities(text: str) -> list[ExtractedQuantity]:
             )
         )
         seen_names.add(canonical)
+
+    # Pass 4 (Iter-3): role-aware geometry. "X cm away from q1" → r1,
+    # "X cm apart" → AB. These are the role-bearing phrases the prior
+    # passes lose. Done last so equation-form (`r1 = X`) wins if both
+    # forms appear.
+    for match in _AWAY_FROM_RE.finditer(normalized):
+        role = _ref_to_role(match.group("ref"))
+        if role is None or role in seen_names:
+            continue
+        raw_value = match.group("value")
+        raw_unit = _clean_unit(match.group("unit"))
+        try:
+            value = _parse_value(raw_value)
+        except ValueError:
+            continue
+        results.append(
+            ExtractedQuantity(
+                name=role, value=value, unit=raw_unit,
+                raw_value=raw_value, raw_unit=raw_unit,
+            )
+        )
+        seen_names.add(role)
+
+    if "AB" not in seen_names:
+        for match in _APART_RE.finditer(normalized):
+            raw_value = match.group("value")
+            raw_unit = _clean_unit(match.group("unit"))
+            try:
+                value = _parse_value(raw_value)
+            except ValueError:
+                continue
+            results.append(
+                ExtractedQuantity(
+                    name="AB", value=value, unit=raw_unit,
+                    raw_value=raw_value, raw_unit=raw_unit,
+                )
+            )
+            seen_names.add("AB")
+            break  # first "X cm apart" wins
+
+    # Pass 5 (Iter-3) — state-change extractors. Capture the ratio word
+    # ("doubled" / "tripled" / "halved") as a dimensionless `ratio` and
+    # the prose voltage source ("connected to a 50 V power source") as V1.
+    # Order matters: V1 / ratio are LAST so an explicit `V1 = ...` form
+    # (rare but possible) wins via Pass 1.
+    if "ratio" not in seen_names:
+        m = _DISTANCE_RATIO_RE.search(normalized)
+        if m:
+            word = m.group("word").lower()
+            value = _DISTANCE_RATIO_WORDS[word]
+            results.append(
+                ExtractedQuantity(
+                    name="ratio", value=value, unit="",
+                    raw_value=word, raw_unit="",
+                )
+            )
+            seen_names.add("ratio")
+
+    if "V1" not in seen_names:
+        m = _POWER_SOURCE_RE.search(normalized)
+        if m:
+            raw_value = m.group("value")
+            raw_unit = _clean_unit(m.group("unit"))
+            try:
+                value = _parse_value(raw_value)
+                results.append(
+                    ExtractedQuantity(
+                        name="V1", value=value, unit=raw_unit,
+                        raw_value=raw_value, raw_unit=raw_unit,
+                    )
+                )
+                seen_names.add("V1")
+            except ValueError:
+                pass
+
+    # Pass 6 (Iter-3) — "has resistance 8 Ω" / "is at 4 V" prose patterns
+    # for THCB070-style circuit-state questions where the OF pattern isn't
+    # used. Maps via _HAS_NOUN_MAP so "has resistance" → R, etc.
+    for m in _HAS_NOUN_RE.finditer(normalized):
+        canonical = _HAS_NOUN_MAP.get(m.group("noun").lower())
+        if canonical is None or canonical in seen_names:
+            continue
+        raw_value = m.group("value")
+        raw_unit = _clean_unit(m.group("unit"))
+        try:
+            value = _parse_value(raw_value)
+            results.append(
+                ExtractedQuantity(
+                    name=canonical, value=value, unit=raw_unit,
+                    raw_value=raw_value, raw_unit=raw_unit,
+                )
+            )
+            seen_names.add(canonical)
+        except ValueError:
+            pass
+
+    if "U" not in seen_names:
+        m = _IS_AT_VOLT_RE.search(normalized)
+        if m:
+            raw_value = m.group("value")
+            raw_unit = _clean_unit(m.group("unit"))
+            try:
+                value = _parse_value(raw_value)
+                results.append(
+                    ExtractedQuantity(
+                        name="U", value=value, unit=raw_unit,
+                        raw_value=raw_value, raw_unit=raw_unit,
+                    )
+                )
+                seen_names.add("U")
+            except ValueError:
+                pass
+
+    # Iter-3 (Day-25 THCB070) — "lamp D2 draws 0.5 A" → I_remaining.
+    if "I_remaining" not in seen_names:
+        m = _DRAWS_RE.search(normalized)
+        if m:
+            raw_value = m.group("value")
+            raw_unit = _clean_unit(m.group("unit"))
+            try:
+                value = _parse_value(raw_value)
+                results.append(
+                    ExtractedQuantity(
+                        name="I_remaining", value=value, unit=raw_unit,
+                        raw_value=raw_value, raw_unit=raw_unit,
+                    )
+                )
+                seen_names.add("I_remaining")
+            except ValueError:
+                pass
 
     return results
 

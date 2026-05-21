@@ -90,6 +90,39 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
         ("of magnetic energy", "stores magnetic energy"),
         "current_from_inductor_energy",
     ),
+    # Iter-3 (Day-25 TD010) STATE-CHANGE: a capacitor was connected to a
+    # source, then disconnected, then plate distance changed. Q is
+    # conserved → V scales with d. MUST precede every other capacitor
+    # routing (capacitor_energy / voltage_from_energy_capacitance /
+    # parallel_plate_*) because those would otherwise misroute on
+    # "capacitor" / "voltage" keywords. Position MATTERS: keyword rules
+    # are first-match-wins; this block must come above the next
+    # voltage_from_energy_capacitance block.
+    (
+        (
+            "is then disconnected",
+            "then disconnected from the source",
+            "after disconnecting",
+            "disconnected from the source",
+        ),
+        "voltage_capacitor_distance_ratio",
+    ),
+    # Iter-3 (Day-25 THCB070) STATE-CHANGE circuit: a lamp/component
+    # is removed and we're given the remaining lamp's current directly
+    # ("lamp D2 draws 0.5 A"). The answer is the passthrough of that
+    # current value. MUST precede the parallel_resistance keyword rule
+    # below because "connected in parallel" still fires on the initial
+    # state.
+    (
+        (
+            "is removed",
+            "is taken out",
+            "if lamp d",   # "if lamp Dx is removed"
+            "if one lamp",
+            "if one bulb",
+        ),
+        "passthrough_current_from_remaining",
+    ),
     # Capacitor-energy-derived unknowns (must come first — they often mention
     # both 'energy' and 'electric field' in the same question).
     (
@@ -426,6 +459,9 @@ _TARGET_WORDS: dict[str, frozenset[str]] = {
     "coulomb_force_two_opposite_sources_isoceles_apex": frozenset({"force", "newton"}),
     "coulomb_force_two_sources_right_triangle_apex": frozenset({"force", "newton"}),
     "coulomb_force_collinear_opposite_signs": frozenset({"force", "newton"}),
+    # Iter-3 (Day-25) state-change
+    "voltage_capacitor_distance_ratio": frozenset({"voltage", "volt", "potential"}),
+    "ohm_law_current": frozenset({"current", "ampere"}),
     "resultant_two_forces": frozenset({"resultant", "angle"}),
     "electric_field_point_charge": frozenset({"intensity", "strength", "magnitude"}),
     "ohm_law_voltage": frozenset({"voltage", "volt"}),

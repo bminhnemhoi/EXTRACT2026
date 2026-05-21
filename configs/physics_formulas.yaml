@@ -408,6 +408,38 @@ formulas:
       unit: "newton"
     expression: "8.9875517923e9 * Abs(q3*q) * Abs(1/r1**2 - 1/r2**2)"
 
+  voltage_capacitor_distance_ratio:
+    topic: TD
+    description: "Iter-3 (Day-25 TD010): a capacitor connected to source at V1, then disconnected (charge Q conserved), then plate distance changes by factor `ratio` = d2/d1. Because Q = C·V and C ∝ 1/d, V scales linearly with d when disconnected: V2 = V1 · ratio. Ratio is dimensionless (2 for 'doubled', 3 for 'tripled', 0.5 for 'halved')."
+    inputs:
+      V1:    { unit: "volt",          aliases: ["initial_voltage", "source_voltage", "U1"] }
+      ratio: { unit: "dimensionless", aliases: ["distance_ratio", "k"] }
+    output:
+      symbol: V2
+      unit: "volt"
+    expression: "V1 * ratio"
+
+  ohm_law_current:
+    topic: CH
+    description: "Iter-3 (Day-25 THCB070): I = U/R from voltage and resistance on a single resistor (or what remains after a switch/component is removed). Distinct from current_from_voltage_impedance which keys on RLC impedance Z."
+    inputs:
+      U: { unit: "volt", aliases: ["voltage", "V", "potential_difference"] }
+      R: { unit: "ohm",  aliases: ["resistance"] }
+    output:
+      symbol: I
+      unit: "ampere"
+    expression: "U / R"
+
+  passthrough_current_from_remaining:
+    topic: THCB
+    description: "Iter-3 (Day-25 THCB070): the official question gives the remaining lamp's current directly ('lamp D2 draws 0.5 A'); after the other lamp is removed the total current equals that remaining value. The formula is a pass-through identity that returns I_remaining unchanged. Routing keys on state-change wording ('is removed' / 'if lamp Dx')."
+    inputs:
+      I_remaining: { unit: "ampere", aliases: ["I", "draws", "remaining_current"] }
+    output:
+      symbol: I_total_new
+      unit: "ampere"
+    expression: "I_remaining"
+
   coulomb_force_collinear_opposite_signs:
     topic: LD
     description: "Iter-2 (Day-25 LD026): net Coulomb force on q3 between two OPPOSITE-sign source charges q1 at A and q2 at B (q1·q2 < 0), where C is between A and B with CA = r1 and CB = r2. The two source forces on q3 point in the SAME direction (one repels, the other attracts), so they ADD: F = k·|q3|·(|q1|/r1² + |q2|/r2²)."

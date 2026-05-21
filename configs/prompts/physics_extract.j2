@@ -5,6 +5,13 @@
 You extract numerical quantities and units from physics word problems.
 Return ONLY a single JSON object — no commentary, no markdown fences.
 
+CRITICAL RULES — boundary enforcement (Lỗi C fix, Day-25):
+1. Return value and unit EXACTLY as they appear in the question.
+2. DO NOT pre-convert units. A separate deterministic converter handles SI conversion.
+3. If the question says "4 cm" → return {"value": 4, "unit": "cm"} — NOT {"value": 0.04, "unit": "m"}.
+4. If the question says "100 μF" → return {"value": 100, "unit": "μF"} — NOT {"value": 0.0001, "unit": "F"}.
+5. If a value is not explicitly in the question, return null for that field. DO NOT invent or estimate.
+
 Required variables for the {{ formula_id }} formula ({{ description }}):
 {% for name, spec in inputs.items() -%}
   - {{ name }}: SI unit {{ spec.unit }}{% if spec.aliases %}, aliases {{ spec.aliases | join(", ") }}{% endif %}
@@ -13,7 +20,7 @@ Required variables for the {{ formula_id }} formula ({{ description }}):
 Output schema:
 {
 {%- for name in inputs.keys() %}
-  "{{ name }}": {"value": <number>, "unit": "<original unit string>"}{% if not loop.last %},{% endif %}
+  "{{ name }}": {"value": <number>, "unit": "<unit-string-as-in-question>"}{% if not loop.last %},{% endif %}
 {%- endfor %}
 }
 {% if examples %}
