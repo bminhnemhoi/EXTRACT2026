@@ -32,7 +32,8 @@ _registry_holder: dict[str, pint.UnitRegistry] = {}
 
 
 # Common Unicode/ASCII aliases the dataset uses. Mapped to pint-canonical
-# spellings before the registry parses.
+# spellings before the registry parses. Order matters — longer keys must
+# precede their substrings (dict iteration is insertion order in 3.7+).
 _UNIT_ALIASES: dict[str, str] = {
     "Ω": "ohm",
     "ohms": "ohm",
@@ -47,7 +48,15 @@ _UNIT_ALIASES: dict[str, str] = {
     "⁻²": "**-2",
     "²": "**2",
     "³": "**3",
-    "turns": "",  # "turns/m" → "1/m" (turns is dimensionless)
+    # Iter-5 Fix B (DDT382/392): pint's built-in `turn` = 2π rad wins over
+    # any re-definition, so naive "turns/m" → "/m" → 2π/m is WRONG for a
+    # solenoid turn-density (which is dimensionless count per metre).
+    # Map the whole composite to "1/m" directly. Longer keys come FIRST.
+    "turns/m": "1/m",
+    "turn/m": "1/m",
+    "turns / m": "1/m",
+    "turn / m": "1/m",
+    "turns": "",      # bare "turns" (no /m) — dimensionless count
 }
 
 

@@ -207,6 +207,19 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
         ),
         "voltage_from_energy_capacitance",
     ),
+    # Iter-5 Fix C (TD361): "A capacitor has a CHARGE OF X μC and a
+    # VOLTAGE OF Y V. Calculate the energy stored." Question never gives
+    # C, so capacitor_energy (needs C+U) fails. Use E = Q·U/2 form.
+    # MUST precede the generic energy rule below. Phrase is narrow to the
+    # capacitor framing (does not catch generic "two charges" questions).
+    (
+        (
+            "capacitor has a charge of",
+            "capacitor with a charge of",
+            "capacitor carries a charge of",
+        ),
+        "capacitor_energy_from_charge_voltage",
+    ),
     (
         (
             "energy stored in capacitor",
@@ -434,15 +447,21 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
         ("calculate the rms current", "calculate the current i in the circuit"),
         "current_from_voltage_impedance",
     ),
-    (("resistors in parallel", "connected in parallel", "in parallel"), "parallel_resistance_two"),
-    (("resistors in series", "connected in series", "in series"), "series_resistance_two"),
-    (("rlc impedance", "impedance of", "total impedance"), "rlc_impedance"),
-    # F2 fix — LC resonance question (L + C present, no R). The naive
-    # "in series" rule above was eating CH025/CH031/CH032 ("L in series
-    # with C"). Detect them here BEFORE this point... actually we keep
-    # the rule order: resonant_frequency rule below catches it via
-    # "resonant frequency" keyword present in those questions.
+    # Iter-5 Fix A: resonance/reactance rules MUST precede the generic
+    # "in series" → series_resistance_two rule. CH025/031/032 ("L in series
+    # with C") clearly say "resonant frequency" and DDT345 says "capacitive
+    # reactance", but the naive "in series" trigger was capturing them
+    # before this rule could fire. Order matters in _keyword_match (first
+    # match wins).
     (("resonance frequency", "resonant frequency", "natural frequency"), "resonance_frequency"),
+    (("resistors in parallel", "connected in parallel", "in parallel"), "parallel_resistance_two"),
+    # Tighten series rule: require explicit resistor wording. "in series"
+    # alone over-matches inductor/capacitor combos that need RLC formulas.
+    (
+        ("resistors in series", "two resistors connected", "series resistors"),
+        "series_resistance_two",
+    ),
+    (("rlc impedance", "impedance of", "total impedance"), "rlc_impedance"),
     (("solenoid",), "magnetic_field_solenoid"),
     (("long wire", "straight wire", "current-carrying wire"), "magnetic_field_long_wire"),
     (("power dissipated", "joule heating", "heat dissipated"), "power_i2r"),
@@ -457,6 +476,7 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
 # the prompt asks for capacitance or charge.
 _TARGET_WORDS: dict[str, frozenset[str]] = {
     "capacitor_energy": frozenset({"energy", "joule", "stored"}),
+    "capacitor_energy_from_charge_voltage": frozenset({"energy", "joule", "stored"}),
     "capacitance_from_charge": frozenset({"capacitance", "farad"}),
     "charge_from_capacitance": frozenset({"charge", "coulomb", "stored"}),
     "voltage_from_energy_capacitance": frozenset({"voltage", "potential difference"}),

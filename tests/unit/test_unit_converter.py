@@ -43,6 +43,20 @@ class TestNormalize:
         # the former. Iter-4 Fix A unblocks the TD parallel-plate slice.
         assert normalize_unit_string(raw) == expected
 
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("turns/m", "1/m"),
+            ("turn/m", "1/m"),
+            ("turns / m", "1/m"),
+        ],
+    )
+    def test_turns_per_metre_is_dimensionless_count(self, raw: str, expected: str) -> None:
+        # Iter-5 Fix B (DDT382/392): pint's built-in ``turn`` = 2π rad
+        # would multiply ``2500 turns/m`` by 2π, giving 15707 — wrong by
+        # 2π for solenoid turn-density. Alias forces the dimensionless count.
+        assert normalize_unit_string(raw) == expected
+
 
 class TestConvert:
     @pytest.mark.parametrize(

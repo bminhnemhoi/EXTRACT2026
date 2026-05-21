@@ -15,6 +15,21 @@ formulas:
       unit: "joule"
     expression: "0.5 * C * U**2"
 
+  # Iter-5 Fix C (TD361): "A capacitor has a charge of 40 μC and a voltage
+  # of 8 V. Calculate the energy stored." Question gives Q and U but never
+  # mentions C explicitly, so capacitor_energy fails with missing_input='C'.
+  # Use the algebraically equivalent E = Q·U/2 form.
+  capacitor_energy_from_charge_voltage:
+    topic: TD
+    description: "Energy stored in a capacitor expressed via charge: E = 0.5·Q·U"
+    inputs:
+      Q: { unit: "coulomb", aliases: ["charge", "q"] }
+      U: { unit: "volt",    aliases: ["voltage", "V"] }
+    output:
+      symbol: E
+      unit: "joule"
+    expression: "0.5 * Q * U"
+
   capacitance_from_charge:
     topic: TD
     description: "Capacitance from charge and voltage: C = Q/U"
