@@ -25,3 +25,19 @@ class TestClean:
     def test_none_safe(self) -> None:
         # We accept None defensively (datasets sometimes have missing fields).
         assert clean("") == ""
+
+    def test_unicode_minus_to_ascii(self) -> None:
+        # Iter-6 (DDT362): U+2212 MINUS SIGN in "C = 10−6 F" must become
+        # ASCII '-' so the scientific-notation regex can fire.
+        assert clean("C = 10−6 F") == "C = 10^-6 F"
+
+    def test_en_dash_in_scientific_notation(self) -> None:
+        # EN DASH (U+2013) becomes ASCII '-'. The bare-10 rewriter only
+        # fires when 10 is flanked by space/equals, so mantissa-times-power
+        # is left as is — the extractor's scientific regex handles that form.
+        assert clean("q = 2×10–8 C") == "q = 2×10-8 C"
+
+    def test_bare_10_neg_is_only_in_scientific_context(self) -> None:
+        # The bare-10 rewrite must not corrupt arithmetic differences.
+        # "(10-6)" or "10 -6" without flanking space-then-equals stays put.
+        assert "10^-" not in clean("There are 10-6=4 apples.")

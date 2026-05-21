@@ -540,3 +540,68 @@ formulas:
       symbol: F
       unit: "newton"
     expression: "8.9875517923e9 * Abs(q1*q) * d / ((d/2)**2 + h**2)**1.5"
+
+  # Iter-6 Tier 1 — 5 audit-driven formulas closing the no_formula_matched cluster.
+
+  # CH371/372/373/374: RLC series quality factor Q = (1/R)·sqrt(L/C). Verified
+  # <0.18% rel error against all four gold answers.
+  quality_factor_q:
+    topic: CH
+    description: "RLC series circuit quality factor: Q = (1/R)*sqrt(L/C)"
+    inputs:
+      L: { unit: "henry", aliases: ["inductance"] }
+      C: { unit: "farad", aliases: ["capacitance"] }
+      R: { unit: "ohm",   aliases: ["resistance"] }
+    output:
+      symbol: Q
+      unit: "dimensionless"
+    expression: "(1/R) * sqrt(L/C)"
+
+  # DDT345: Capacitive reactance X_C = 1/(2πfC). Verified 0.01% on gold 35.37 Ω.
+  capacitive_reactance:
+    topic: DDT
+    description: "Capacitive reactance: X_C = 1/(2*pi*f*C)"
+    inputs:
+      f: { unit: "hertz", aliases: ["frequency"] }
+      C: { unit: "farad", aliases: ["capacitance"] }
+    output:
+      symbol: X_C
+      unit: "ohm"
+    expression: "1 / (2 * pi * f * C)"
+
+  # DDT362: Natural period of an LC oscillator T = 2π·sqrt(LC). Verified 0.15%.
+  natural_period_lc:
+    topic: DDT
+    description: "LC circuit natural oscillation period: T = 2*pi*sqrt(L*C)"
+    inputs:
+      L: { unit: "henry", aliases: ["inductance"] }
+      C: { unit: "farad", aliases: ["capacitance"] }
+    output:
+      symbol: T
+      unit: "second"
+    expression: "2 * pi * sqrt(L * C)"
+
+  # DDT384: Total flux linkage through N-turn coil: Psi = N * Phi. Verified 0.00%.
+  total_flux_linkage:
+    topic: DDT
+    description: "Total flux linkage through an N-turn coil: Psi = N * Phi"
+    inputs:
+      N:   { unit: "dimensionless", aliases: ["turns", "n_turns", "num_turns"] }
+      Phi: { unit: "weber",         aliases: ["flux", "magnetic_flux", "phi"] }
+    output:
+      symbol: Psi
+      unit: "weber"
+    expression: "N * Phi"
+
+  # NL092: Energy-loss percentage between two LC states: %loss = (W_i-W_f)/W_i*100.
+  # Verified 0.00% on (1.6 mJ -> 0.4 mJ = 75%).
+  energy_loss_percent:
+    topic: NL
+    description: "Percentage energy loss: %loss = (W_initial - W_final) / W_initial * 100"
+    inputs:
+      W_initial: { unit: "joule", aliases: ["W_i", "initial_energy", "W0", "W_0"] }
+      W_final:   { unit: "joule", aliases: ["W_f", "final_energy",   "W"] }
+    output:
+      symbol: percent_loss
+      unit: "dimensionless"
+    expression: "(W_initial - W_final) / W_initial * 100"

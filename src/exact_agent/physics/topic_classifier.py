@@ -265,6 +265,14 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
             "angle between them",
             "two forces with magnitudes",
             "resultant of the two forces",
+            # Iter-6 (LD126/182): "Two electric forces have magnitudes of
+            # 3 N and 8 N, acting at a 90° angle" — earlier triggers missed
+            # the inverted word order and the "their resultant force" wording.
+            "two electric forces have magnitudes",
+            "two electric forces have a magnitude",
+            "their resultant force",
+            "a 90° angle",
+            "a 90 degree angle",
         ),
         "resultant_two_forces",
     ),
@@ -453,6 +461,59 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     # reactance", but the naive "in series" trigger was capturing them
     # before this rule could fire. Order matters in _keyword_match (first
     # match wins).
+    # Iter-6: quality factor Q = (1/R)·sqrt(L/C). MUST precede the generic
+    # resonance/series rules because the question phrasing ("calculate Q",
+    # "quality factor") could otherwise be eaten by them.
+    (
+        (
+            "quality factor",
+            "calculate the quality factor",
+            "calculate q",
+            "what is the value of q",
+            "determine q",
+        ),
+        "quality_factor_q",
+    ),
+    # Iter-6: capacitive reactance X_C = 1/(2*pi*f*C). DDT345-style.
+    (
+        (
+            "capacitive reactance",
+            "calculate z_c",
+            "calculate the capacitive reactance",
+        ),
+        "capacitive_reactance",
+    ),
+    # Iter-6: natural period T = 2*pi*sqrt(L*C). DDT362-style. Distinct
+    # from "natural frequency" (which maps to resonance_frequency).
+    (
+        (
+            "natural period",
+            "period of oscillation",
+            "natural period of oscillation",
+        ),
+        "natural_period_lc",
+    ),
+    # Iter-6: total flux linkage Psi = N*Phi (DDT384). Specific phrase
+    # so it doesn't conflict with single-turn magnetic_flux_solenoid_one_turn.
+    (
+        (
+            "total flux linkage",
+            "flux linkage",
+            "calculate the total flux",
+        ),
+        "total_flux_linkage",
+    ),
+    # Iter-6: energy-loss percent in LC oscillation (NL092). Specific.
+    (
+        (
+            "percentage loss",
+            "percent loss",
+            "percentage of energy loss",
+            "% loss",
+            "loss (%)",
+        ),
+        "energy_loss_percent",
+    ),
     (("resonance frequency", "resonant frequency", "natural frequency"), "resonance_frequency"),
     (("resistors in parallel", "connected in parallel", "in parallel"), "parallel_resistance_two"),
     # Tighten series rule: require explicit resistor wording. "in series"
@@ -508,6 +569,12 @@ _TARGET_WORDS: dict[str, frozenset[str]] = {
     "voltage_capacitor_distance_ratio": frozenset({"voltage", "volt", "potential"}),
     "ohm_law_current": frozenset({"current", "ampere"}),
     "resultant_two_forces": frozenset({"resultant", "angle"}),
+    # Iter-6 new formulas:
+    "quality_factor_q": frozenset({"quality", "factor", "q"}),
+    "capacitive_reactance": frozenset({"reactance", "z_c", "ohm"}),
+    "natural_period_lc": frozenset({"period", "oscillation", "second"}),
+    "total_flux_linkage": frozenset({"flux", "linkage", "weber"}),
+    "energy_loss_percent": frozenset({"loss", "percent", "percentage"}),
     "electric_field_point_charge": frozenset({"intensity", "strength", "magnitude"}),
     "ohm_law_voltage": frozenset({"voltage", "volt"}),
     "power_voltage_current": frozenset({"power", "watt"}),
