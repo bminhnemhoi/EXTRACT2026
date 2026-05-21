@@ -1,0 +1,145 @@
+# Day-27 / Path B HYBRID deploy topology — only choose this over the
+# default `docker-compose.yml` when:
+#  * E7 A/B (ADR 0022 + 0025) confirms an SFT-7B lift worth the cost
+#  * You have a rented GPU host with >= 24 GB VRAM (A5000 / A6000 / A100)
+#  * You accept the Q3 grey-area interpretation documented in ADR 0025
+#
+# Layout:
+#
+#   ollama (GPU partition)    qwen2.5:3b-instruct (~2.6 GB VRAM)
+#                              serves LD-domain physics requests
+#                              (coulomb force, electric field, etc.)
+#
+#   vllm   (GPU partition)    Qwen2.5-7B-Instruct + LoRA adapter
+#                              serves everything else (non-LD physics, logic)
+#                              ~14 GB VRAM in fp16, ~6 GB if AWQ-quantised
+#
+#   api    (CPU)               FastAPI; PhysicsSolver dispatches per
+#                              formula via _client_for_formula() so
+#                              only one model is invoked per query.
+#                              Q3 "one model actively serving" is met.
+#
+# Total expected VRAM: 14 + 2.6 + overhead ~= 18 GB. Comfortably fits
+# in 24 GB. If the user's GPU is smaller, swap to ``--dtype=awq`` on
+# the vllm command and you can fit in 12 GB.
+#
+# Q3 caveat (honest, ADR 0025): both models are RESIDENT in VRAM
+# simultaneously. We interpret QA Q3 "actively loaded and running" as
+# "actively serving a request"; per-query only one client is invoked
+# by the solver dispatcher. Strict reading would mandate model swap
+# (load-evict-load) per LD-vs-non-LD query — impractical under the
+# 60s/req cap. Documented in solution_description.pdf + ADR 0025.
+#
+#   docker compose -f docker/docker-compose-hybrid.yml up -d --build
+#
+# Adapter prep (one-time, before `docker compose up`):
+#
+#   1. Place the trained LoRA zip at  ../models/adapter/
+#         (host path mounted into vllm at /adapters/exact-sft-lora)
+#   2. unzip -d ../models/adapter ../exact_qwen25_7b_lora_v20260515.zip
+#   3. Verify  ../models/adapter/adapter_config.json  exists.
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    environment:
+      OLLAMA_KEEP_ALIVE: "-1"                 # pin model resident
+      OLLAMA_GPU_MEMORY_FRACTION: "0.15"      # leave VRAM for vLLM
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  model-pull:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: "http://ollama:11434"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["ollama pull qwen2.5:3b-instruct"]
+    restart: "no"
+
+  vllm:
+    image: vllm/vllm-openai:latest
+    restart: unless-stopped
+    # The adapter folder must be unzipped at ../models/adapter/ on the
+    # host BEFORE `docker compose up`. See header comment for prep.
+    volumes:
+      - ../models/adapter:/adapters/exact-sft-lora:ro
+    environment:
+      VLLM_API_KEY: "hybrid-no-auth"
+    # Serve Qwen2.5-7B-Instruct base + the SFT LoRA adapter as a
+    # named module. Calls specify `"model": "exact-sft"` and vLLM
+    # composes base+adapter at request time. --max-loras 1 keeps the
+    # adapter cache simple; --max-lora-rank must match the trained
+    # rank (16, per sft_qwen_colab.ipynb defaults).
+    command:
+      - --model=unsloth/qwen2.5-7b-instruct
+      - --enable-lora
+      - --lora-modules=exact-sft=/adapters/exact-sft-lora
+      - --max-loras=1
+      - --max-lora-rank=16
+      - --port=8000
+      - --host=0.0.0.0
+      - --api-key=hybrid-no-auth
+      - --dtype=auto             # use awq/int4 if your GPU is tight
+      - --max-model-len=8192     # shrink from default 32k to save VRAM
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/v1/models || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 120s         # 7B + LoRA load ≈ 60-90s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    restart: unless-stopped
+    depends_on:
+      model-pull:
+        condition: service_completed_successfully
+      vllm:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      # Default backbone (non-LD physics + logic) → vLLM-served SFT-7B.
+      EXACT_LLM__BASE_URL: "http://vllm:8000/v1"
+      EXACT_LLM__MODEL: "exact-sft"
+      EXACT_LLM__API_KEY: "hybrid-no-auth"
+      # LD-domain backbone (Coulomb / electric field force) → Ollama 3B.
+      # Day-23 E7 A/B (ADR 0022) showed SFT-7B regresses LD; hybrid
+      # routes LD to 3B and everything else to SFT-7B (+2.5pp lift over
+      # F1+F2 alone, confirmed ADR 0025).
+      EXACT_LLM_LD__BASE_URL: "http://ollama:11434/v1"
+      EXACT_LLM_LD__MODEL: "qwen2.5:3b-instruct"
+      EXACT_LLM_LD__API_KEY: "ollama-no-auth"
+      # Builds both clients in the Orchestrator and enables the
+      # solver-grounded self-correction loop (ADR 0007 / 0008).
+      EXACT_SELF_CORRECTION__ENABLED: "true"
+      EXACT_LOGGING__LEVEL: "INFO"
+
+volumes:
+  ollama-models:

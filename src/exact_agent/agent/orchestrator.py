@@ -12,13 +12,20 @@ LLM resolution policy:
   (physics extractor, logic NL→FOL) *and* the self-correction loop. The
   client is lazy — if the endpoint is unreachable the fallbacks degrade to
   the deterministic answer rather than erroring.
+* Day-27 hybrid: when ``EXACT_LLM_LD__BASE_URL`` is set (alongside the
+  default ``EXACT_LLM__BASE_URL``), the orchestrator builds a SECOND
+  client for the LD-domain physics formulas. ``PhysicsSolver`` routes
+  per-formula (one model per query → Q3-safe). Absent the LD env vars,
+  the single-client path stays unchanged for the existing deploy.
 """
 
 from __future__ import annotations
 
+import os
+
 from exact_agent.agent.self_correction import SelfCorrector
 from exact_agent.config import get_settings
-from exact_agent.llm.vllm_client import LLMClient, VLLMClient
+from exact_agent.llm.vllm_client import LLMClient, LLMConfig, VLLMClient
 from exact_agent.logic.pipeline import LogicPipeline
 from exact_agent.physics.pipeline import PhysicsPipeline
 from exact_agent.physics.solver import PhysicsSolver
@@ -35,8 +42,13 @@ class Orchestrator:
         self_corrector: SelfCorrector | None = None,
     ) -> None:
         client = self._resolve_llm(llm_client)
+        ld_client = self._resolve_ld_llm(client)
         self._logic = logic_pipeline or LogicPipeline(llm_client=client)
-        self._physics = physics_pipeline or PhysicsPipeline(solver=PhysicsSolver(llm_client=client))
+        # PhysicsSolver dispatches per-formula when ld_client is provided
+        # (Day-23 hybrid wiring; ADR 0022 + ADR 0025).
+        self._physics = physics_pipeline or PhysicsPipeline(
+            solver=PhysicsSolver(llm_client=client, llm_client_ld=ld_client)
+        )
         self._corrector = self._build_corrector(client, self_corrector)
 
     def predict(self, payload: PredictRequest) -> PredictResponse:
@@ -57,6 +69,20 @@ class Orchestrator:
             # first call, where the fallbacks already handle failure.
             return VLLMClient()
         return None
+
+    @staticmethod
+    def _resolve_ld_llm(default: LLMClient | None) -> LLMClient | None:
+        """Build the hybrid LD client when EXACT_LLM_LD__BASE_URL is set.
+
+        Only fires when the default client also exists (i.e. self_correction
+        is enabled). Returns None for the legacy single-backbone path so
+        the existing Path-A deploy is byte-identical.
+        """
+        if default is None:
+            return None
+        if not os.environ.get("EXACT_LLM_LD__BASE_URL"):
+            return None
+        return VLLMClient(LLMConfig.from_yaml(env_prefix="EXACT_LLM_LD"))
 
     @staticmethod
     def _build_corrector(

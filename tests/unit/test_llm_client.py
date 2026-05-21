@@ -144,3 +144,24 @@ class TestEnvOverride:
         cfg = LLMConfig.from_yaml()
         assert cfg.enable_lora is True
         assert cfg.lora_adapter_path == "/models/adapter"
+
+    def test_alternate_env_prefix_isolates_namespace(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Day-27 hybrid wiring: a second VLLMClient is built with prefix
+        # "EXACT_LLM_LD" so the two backbones (default vLLM + LD-domain
+        # Ollama) can be configured independently in compose.
+        monkeypatch.setenv("EXACT_LLM__BASE_URL", "http://vllm:8000/v1")
+        monkeypatch.setenv("EXACT_LLM__MODEL", "sft")
+        monkeypatch.setenv("EXACT_LLM_LD__BASE_URL", "http://ollama:11434/v1")
+        monkeypatch.setenv("EXACT_LLM_LD__MODEL", "qwen2.5:3b-instruct")
+        # Default namespace
+        default_cfg = LLMConfig.from_yaml()
+        assert default_cfg.base_url == "http://vllm:8000/v1"
+        assert default_cfg.model == "sft"
+        # LD namespace
+        ld_cfg = LLMConfig.from_yaml(env_prefix="EXACT_LLM_LD")
+        assert ld_cfg.base_url == "http://ollama:11434/v1"
+        assert ld_cfg.model == "qwen2.5:3b-instruct"
+        # Shared knobs (mode, max_tokens) come from the file for both.
+        assert default_cfg.mode == ld_cfg.mode
