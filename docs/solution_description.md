@@ -25,7 +25,7 @@ The explanation is generated from the solver's trace, so it cannot diverge from 
   guards + state-change + symbol fallback) -> 6-pass role-aware regex extractor (chain
   equality, noun-of-value, "X cm away/apart", "has resistance / is at", "draws X A",
   ratio) with LLM fallback (N=3 self-consistency + TF-IDF RAG; unit pre-convert forbidden;
-  "x 10^N" scientific peel) -> pint normalisation (cm2/mm3 / turns/m auto-fixed) -> **42-formula
+  "x 10^N" scientific peel) -> pint normalisation (cm2/mm3 / turns/m auto-fixed) -> **47-formula
   YAML registry** (capacitor/Coulomb/plate variants, E-field point/midpoint/perp-bisector,
   isoceles & right-triangle apex, voltage capacitor distance ratio Q-conserved, magnetic
   flux/solenoid/wire/linkage, RLC impedance/resonance/factor/period/quality, Ohm's law,
@@ -47,24 +47,23 @@ T4, 1,765 pairs from 2026-05-09). Measured on a **163-row SFT-unseen** holdout o
 (`scripts/build_sft_unseen_holdout.py` fixes a 99% leakage in our prior holdout): single
 SFT-7B = 24.5% (-6.6pp LD regression, 5x latency); hybrid LD->3B + rest->SFT-7B = 30.1%.
 **Not deployed**: Q3 "one model resident" compliance + vLLM-LoRA stack is 1-2 days of risk
-that does not justify marginal lift over deterministic 43.6%.
+that does not justify marginal lift over deterministic 46.0%.
 
 ## Data & compliance
 
 Only the official EXACT2026 release **2026-05-15**. No external/synthetic/crawled data, no
 GPT/Claude/Gemini in the pipeline. See `docs/data_disclosure.pdf`. 271 automated tests; ruff
-+ mypy CI; 33 ADRs documenting every architectural decision and measurement.
++ mypy CI; 34 ADRs documenting every architectural decision and measurement.
 
 ## Internal results (163-row SFT-unseen clean holdout, frozen unit-/round-aware scorer)
 
 | Variant | Physics Full | Logic correct |
 |---|---:|---:|
 | Day-1 rule-only / Day-21 honest baseline | 0.8% / 22.1% | 35.9% / 22.2% |
-| + F1+F2 audit + field-vs-force / F3+E5 selector+FOL loop | 27.6% | **23.5%** |
-| + Iter-3/4/5 (architectural rewrite + routing + unit cleanup, Day-25) | 39.3% | -- |
-| + Iter-6 5-formula fan-out (Q, X_C, T_LC, Psi, %loss) + Unicode minus | **43.6%** | -- |
+| + F1+F2 audit + field-vs-force / F3+E5 selector+FOL loop | 27.6% | 23.5% |
+| + Iter-3 through Iter-7 (audit-driven formula fan-out, Day-25-27) | **46.0%** | **24.7%** |
 
-Per-iteration deterministic-only path on the 163-row holdout: 27.6 → 33.1 (Iter-3) → 36.8 (Iter-4) → 39.3 (Iter-5) → 43.6 (Iter-6). Iter-6 prefix lift (vs 39.3%): CH 38→49%, DDT 31→38%, LD 40→44%. Cumulative since 27.6%: **+16.0pp**.
+Deterministic-only trajectory (163 rows, qwen2.5:3b extractor): 27.6 → 33.1 → 36.8 → 39.3 → 43.6 → **46.0** across Iter-3/4/5/6/7. Latest prefix lift (vs 43.6%): CH 49→54%, DDT 38→44%, NL 24→29%. Cumulative since 27.6%: **+18.4pp** physics (no SFT). Logic moved +1.2pp via NL→FOL vocab regex fix; remaining gap is translator-bound on the 3B model.
 
 Physics correctness uses strict value-and-unit match (pint dimension + 1% rel tolerance OR
 round-aware at gold's stated precision). The deterministic solver is exact where extraction
