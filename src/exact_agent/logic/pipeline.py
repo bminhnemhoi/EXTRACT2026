@@ -62,19 +62,28 @@ def _try_z3_fallback(
     llm: LLMClient | None,
     trace_sink: list[str],
 ) -> VerifierResult | None:
-    """Try the Z3 backend when the surface verifier abstained or low-confidence.
+    """Try the Z3 backend whenever FOL premises are available.
+
+    Iter-7 (confusion-matrix audit on logic eval): the surface
+    ``verify_yes_no`` heuristic is biased toward "Yes" because it only
+    checks claim entailment (never ¬claim) and flips Yes/No purely on
+    syntactic question-negation tokens. Z3 (when given FOL premises) does
+    a sound bidirectional check (entail vs refute) and is strictly more
+    reliable. We now ALWAYS run Z3 when FOL premises exist; only the
+    surface answer is kept when Z3 returns Unknown OR FOL is missing.
 
     The LLM (if configured) is asked to translate the question into a FOL
     claim when one wasn't supplied; otherwise we just need ``premises-FOL``
-    plus a caller-provided ``claim-FOL``. Returns ``None`` if neither
-    pre-condition holds or Z3 didn't decide.
+    plus a caller-provided ``claim-FOL``. Returns ``None`` if FOL premises
+    are missing or Z3 cannot decide.
     """
     fol_premises = payload.premises_FOL
     if not fol_premises:
         return None
-    # Don't replace a confident surface answer.
-    if surface.answer in {"Yes", "No"} and surface.confidence >= 0.7:
-        return None
+    # NOTE: removed the "don't replace confident surface" gate (Iter-7).
+    # Surface high-confidence "Yes" was wrong on 16 of 81 rows -- the
+    # syntactic negation heuristic never saw the actual semantic refutation
+    # that Z3 catches via Not(claim) ∧ premises being unsat.
 
     claim_fol = payload.claim_FOL
     if not claim_fol and llm is not None:

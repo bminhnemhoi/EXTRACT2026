@@ -605,3 +605,69 @@ formulas:
       symbol: percent_loss
       unit: "dimensionless"
     expression: "(W_initial - W_final) / W_initial * 100"
+
+  # Iter-7 Tier-1 — 5 audit-driven formulas closing additional missing_input clusters.
+
+  # NL346: "energy stored 0.1 J, voltage 100 V, find charge". Q = 2W/U from W=½QU.
+  charge_from_energy_voltage:
+    topic: NL
+    description: "Charge on a capacitor from its stored energy and voltage: Q = 2*W/U"
+    inputs:
+      W: { unit: "joule", aliases: ["energy", "stored_energy", "electric_field_energy"] }
+      U: { unit: "volt",  aliases: ["voltage", "V"] }
+    output:
+      symbol: Q
+      unit: "coulomb"
+    expression: "2 * W / U"
+
+  # CH169: "RMS U=112V, R=75, at resonance, max power". At resonance Z=R so P_max = U²/R.
+  power_at_resonance_max:
+    topic: CH
+    description: "Maximum power in a series RLC at resonance (Z=R): P_max = U^2 / R"
+    inputs:
+      U: { unit: "volt", aliases: ["voltage", "rms_voltage"] }
+      R: { unit: "ohm",  aliases: ["resistance"] }
+    output:
+      symbol: P
+      unit: "watt"
+    expression: "U**2 / R"
+
+  # DDT339: "RLC, Z=50, R=30, U=150V, power consumed". P = U²·R/Z² (= P_max·cos²φ form).
+  power_from_voltage_impedance_r:
+    topic: DDT
+    description: "Active power in series RLC given U, R, Z: P = U^2 * R / Z^2"
+    inputs:
+      U: { unit: "volt", aliases: ["voltage", "rms_voltage", "source_voltage"] }
+      R: { unit: "ohm",  aliases: ["resistance"] }
+      Z: { unit: "ohm",  aliases: ["impedance"] }
+    output:
+      symbol: P
+      unit: "watt"
+    expression: "U**2 * R / Z**2"
+
+  # CH365: "U=120, R=40, L=0.10, C=50uF at resonance, find U_L". At resonance,
+  # omega = 1/sqrt(LC) -> X_L = omega·L = sqrt(L/C). U_L = X_L·I = X_L·U/R = U·sqrt(L/C)/R.
+  voltage_inductor_at_resonance:
+    topic: CH
+    description: "Voltage across L in a series RLC at resonance: U_L = U*sqrt(L/C)/R"
+    inputs:
+      U: { unit: "volt",  aliases: ["voltage", "rms_voltage", "source_voltage"] }
+      R: { unit: "ohm",   aliases: ["resistance"] }
+      L: { unit: "henry", aliases: ["inductance"] }
+      C: { unit: "farad", aliases: ["capacitance"] }
+    output:
+      symbol: U_L
+      unit: "volt"
+    expression: "U * sqrt(L/C) / R"
+
+  # NL340: "LC with W_total=0.5 J, W_L=0.3 J, find W_C". Conservation: W_C = W_total - W_L.
+  lc_partition_electric_energy:
+    topic: NL
+    description: "LC oscillator energy partition (conservation): W_C = W_total - W_L"
+    inputs:
+      W_total: { unit: "joule", aliases: ["total_energy", "W_tot", "W"] }
+      W_L:     { unit: "joule", aliases: ["magnetic_energy", "W_M", "W_magnetic"] }
+    output:
+      symbol: W_C
+      unit: "joule"
+    expression: "W_total - W_L"

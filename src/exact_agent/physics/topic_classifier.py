@@ -220,6 +220,28 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
         ),
         "capacitor_energy_from_charge_voltage",
     ),
+    # Iter-7 NL346: question gives energy + voltage, asks for charge.
+    # MUST precede the generic capacitor_energy rule which fires on
+    # "energy stored in a capacitor" and would steal this row.
+    (
+        (
+            "what is the charge",
+            "find the charge",
+            "calculate the charge (mc)",
+            "the charge (mc) on the capacitor",
+        ),
+        "charge_from_energy_voltage",
+    ),
+    # Iter-7 NL340: LC partition — given W_total and W_L, find W_C. Distinctive
+    # phrase "what is the electric field energy" + LC context.
+    (
+        (
+            "electric field energy (j)",
+            "what is the electric field energy",
+            "find the electric field energy",
+        ),
+        "lc_partition_electric_energy",
+    ),
     (
         (
             "energy stored in capacitor",
@@ -514,6 +536,37 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
         ),
         "energy_loss_percent",
     ),
+    # CH169: at-resonance MAX power. Must precede generic resonance rules.
+    (
+        (
+            "maximum power",
+            "max power",
+            "pmax",
+            "p_max",
+        ),
+        "power_at_resonance_max",
+    ),
+    # CH365: voltage across L at resonance.
+    (
+        (
+            "voltage across l",
+            "calculate ul",
+            "calculate u_l",
+            "voltage across the inductor",
+        ),
+        "voltage_inductor_at_resonance",
+    ),
+    # DDT339: when Z is given (impedance) + power consumed asked, use the
+    # impedance-based active-power formula instead of P=UI (which needs I).
+    # MUST precede the generic "power consumed" rule that lands on power_voltage_current.
+    (
+        (
+            "impedance z =",
+            "an impedance z",
+            "has an impedance",
+        ),
+        "power_from_voltage_impedance_r",
+    ),
     (("resonance frequency", "resonant frequency", "natural frequency"), "resonance_frequency"),
     (("resistors in parallel", "connected in parallel", "in parallel"), "parallel_resistance_two"),
     # Tighten series rule: require explicit resistor wording. "in series"
@@ -575,6 +628,12 @@ _TARGET_WORDS: dict[str, frozenset[str]] = {
     "natural_period_lc": frozenset({"period", "oscillation", "second"}),
     "total_flux_linkage": frozenset({"flux", "linkage", "weber"}),
     "energy_loss_percent": frozenset({"loss", "percent", "percentage"}),
+    # Iter-7 Tier-1 new formulas:
+    "charge_from_energy_voltage": frozenset({"charge", "coulomb", "mc"}),
+    "power_at_resonance_max": frozenset({"power", "max", "watt"}),
+    "power_from_voltage_impedance_r": frozenset({"power", "consumed", "watt"}),
+    "voltage_inductor_at_resonance": frozenset({"voltage", "inductor", "ul"}),
+    "lc_partition_electric_energy": frozenset({"electric", "energy", "joule"}),
     "electric_field_point_charge": frozenset({"intensity", "strength", "magnitude"}),
     "ohm_law_voltage": frozenset({"voltage", "volt"}),
     "power_voltage_current": frozenset({"power", "watt"}),

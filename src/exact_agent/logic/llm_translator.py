@@ -27,7 +27,9 @@ from exact_agent.llm.vllm_client import LLMClient
 from exact_agent.logic.fol_parser import parse_fol
 
 _FOL_LINE_RE = re.compile(r"[∀∃¬A-Za-z(].+")
-_PRED_IN_LINE_RE = re.compile(r"\b([A-Z_][A-Za-z0-9_]+)\s*\(")
+_PRED_IN_LINE_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]+)\s*\(")
+# Iter-7: matched _collect_predicate_vocab — allow lowercase snake_case
+# predicates that dataset 2026-05-15 actually uses.
 
 
 class LLMTranslationError(RuntimeError):
@@ -170,11 +172,25 @@ def _generate(
 
 
 def _collect_predicate_vocab(premises_fol: list[str]) -> set[str]:
-    """Pull predicate names out of the premise FOL strings (rough but useful)."""
-    pred_re = re.compile(r"\b([A-Z_][A-Za-z0-9_]+)\s*\(")
+    """Pull predicate names out of the premise FOL strings (rough but useful).
+
+    Iter-7 fix: dataset 2026-05-15 uses snake_case lowercase predicates
+    (``completed_pedagogical_training``, ``holds_phd``) — the prior regex
+    required PascalCase initial cap, returning an EMPTY vocab. With no
+    vocab the LLM had no constraint and invented PascalCase predicates
+    that never matched, then Z3 returned Unknown on every translated
+    claim. Allowing lowercase-leading identifiers fixes 81 logic rows.
+    """
+    # Match identifier-then-open-paren, but NOT FOL operators ForAll/Exists/
+    # And/Or/Not/Implies (which are syntax, not predicates). Allow any
+    # alphanumeric start including underscore.
+    pred_re = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]+)\s*\(")
+    reserved = {"ForAll", "Exists", "And", "Or", "Not", "Implies", "Iff"}
     out: set[str] = set()
     for line in premises_fol or []:
-        out.update(pred_re.findall(line))
+        for name in pred_re.findall(line):
+            if name not in reserved:
+                out.add(name)
     return out
 
 
