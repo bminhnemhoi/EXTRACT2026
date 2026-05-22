@@ -1,25 +1,36 @@
 {# Translate a single natural-language premise into Unicode FOL.
    Used by logic.fol_parser when premises-FOL is missing or malformed.
-   Iter-7: emphasize ground atoms + reuse of premise vocabulary.        #}
+   Iter-12: emphasize ground atoms + qualifier preservation + ∃ now OK. #}
 You are a precise translator of educational regulation statements into
-first-order logic. Output is consumed by a STRICT parser that accepts ONLY:
+first-order logic. Output is consumed by a STRICT parser that accepts:
 
-  - Ground atoms:       p(c)   or   ¬p(c)
-  - Universal rules:    ∀x (a(x) ∧ b(x) → c(x))
-  - Comparisons:        f(x) ≥ n
+  - Ground atoms:                 p(c)   or   ¬p(c)
+  - Universal rules:              ∀x (a(x) ∧ b(x) → c(x))
+  - Existential claims:           ∃x (a(x) ∧ b(x) ∧ c(x))
+  - Comparisons:                  f(x) ≥ n
 
-The parser REJECTS: ∃ (existential), ∨ (disjunction), nested quantifiers,
-or any predicate that does not appear verbatim in the premise vocabulary.
+The parser REJECTS: ∨ (disjunction), ↔ (biconditional), or any predicate
+name that does not appear verbatim in the premise vocabulary.
 
-Rules of thumb:
-  1. If the claim is about a SPECIFIC named entity (a person, a course
-     code), prefer the SIMPLEST ground-atom form. DO NOT wrap it in a
-     universal quantifier.
-       Claim: "Does John meet all requirements to propose courses?"
-       FOL:   can_propose_courses(John)
-  2. If the claim is a general policy (no entity), use a universal rule.
-  3. Reuse the predicate names from the premise vocabulary EXACTLY (the
-     same case and underscores; do NOT rename or capitalize).
+Rules of thumb (CRITICAL — read carefully):
+
+  1. **Choose the quantifier by the claim's wording:**
+     - "Does X meet ..."          → ground atom: predicate(X)
+     - "Is X allowed to ..."      → ground atom: predicate(X)
+     - "All Xs are ..."           → ∀x (X(x) → predicate(x))
+     - "Every X ..."              → ∀x (X(x) → predicate(x))
+     - "There exists at least one X who ..." → ∃x (X(x) ∧ predicate(x))
+     - "At least one ..."         → ∃x (...)
+     - "Some ..."                 → ∃x (...)
+
+  2. **Preserve ALL qualifiers as a CONJUNCTION.** When a claim says
+     "X who is also Y and Z", translate the conjunction explicitly:
+       "There exists a student on the honor roll who is eligible for a scholarship"
+       FOL: ∃x (HonorRoll(x) ∧ EligibleForScholarship(x))
+     DO NOT drop "honor roll" and write just ∃x (EligibleForScholarship(x)).
+
+  3. **Reuse predicate names from the premise vocabulary EXACTLY** —
+     same case, same underscores. Do NOT rename or capitalize differently.
 
 Examples:
 NL: "All students who pass DSA receive credit."
@@ -34,11 +45,14 @@ FOL: CompletedCapstone(Sophia)
 NL: "Does Professor John meet all requirements to propose new courses?"
 FOL: can_propose_courses(John)
 
-NL: "Is Alice allowed to supervise graduate students?"
-FOL: can_supervise_graduate(Alice)
+NL: "There exists at least one student on the honor roll who is eligible for a scholarship."
+FOL: ∃x (HonorRoll(x) ∧ EligibleForScholarship(x))
 
-NL: "Has the team finished the deliverable?"
-FOL: finished_deliverable(team)
+NL: "At least one student attends lectures."
+FOL: ∃x (AttendsLectures(x))
+
+NL: "Some student has high academic performance and qualifies for advanced placement."
+FOL: ∃x (HighAcademicPerformance(x) ∧ QualifiesForAdvancedPlacement(x))
 
 Now translate (respond with ONLY the FOL line, no commentary):
 NL: "{{ premise }}"

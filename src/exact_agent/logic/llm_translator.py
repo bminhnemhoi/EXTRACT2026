@@ -137,6 +137,30 @@ def translate_question_to_fol_with_verify(
                 )
                 continue
 
+        # Iter-12: Qualifier-preservation check (the user's "không được bỏ
+        # cụm bổ nghĩa như 'honor roll'" rule). For each premise predicate
+        # whose naturalized form (snake_case → spaces) appears as a noun
+        # phrase in the QUESTION, that predicate MUST appear in the claim.
+        # Without this check, "There exists a student on the HONOR ROLL who
+        # is ELIGIBLE for a scholarship" gets translated to just
+        # `eligible_for_scholarship(student)` and Z3 wrongly says Yes.
+        expected_preds = _question_expected_predicates(question, vocab)
+        missing_quals = expected_preds - claim_preds
+        if missing_quals:
+            reason = (
+                f"attempt {attempt + 1}: '{line}' is missing qualifier predicate(s) "
+                f"{sorted(missing_quals)} that the question explicitly mentions"
+            )
+            trace.append(reason)
+            feedback.append(
+                f"Your last output {line!r} dropped qualifier predicate(s) "
+                f"{sorted(missing_quals)}. The QUESTION text explicitly mentions "
+                f"the corresponding noun phrase(s); the claim FOL MUST include "
+                f"each of those predicates as part of the entity's condition "
+                f"conjunction. Do NOT translate a CONJUNCTION as a single atom."
+            )
+            continue
+
         trace.append(f"attempt {attempt + 1}: '{line}' accepted")
         return line, trace
 
@@ -169,6 +193,63 @@ def _generate(
     if not raw:
         raise LLMTranslationError("LLM returned empty completion")
     return raw
+
+
+def _naturalize_predicate(name: str) -> str:
+    """Convert ``snake_case_or_PascalCase`` predicate name to a normalized
+    space-separated lowercase phrase suitable for substring matching in
+    a natural-language question.
+
+    Examples:
+        honor_roll              -> "honor roll"
+        HonorRoll               -> "honor roll"
+        EligibleForScholarship  -> "eligible for scholarship"
+        completed_pedagogical_training -> "completed pedagogical training"
+    """
+    # Split PascalCase: insert spaces before capital letters
+    spaced = re.sub(r"(?<!^)(?=[A-Z])", " ", name)
+    # snake_case → spaces
+    spaced = spaced.replace("_", " ")
+    return spaced.lower().strip()
+
+
+_STOP_WORDS = frozenset({
+    "a", "an", "the", "of", "to", "in", "on", "at", "by", "for", "with",
+    "is", "are", "be", "as", "and", "or", "if", "then",
+})
+
+
+def _question_expected_predicates(question: str, vocab: set[str]) -> set[str]:
+    """Iter-12: predicates that the question explicitly mentions and that
+    therefore MUST appear in the translated claim's conjunction.
+
+    For each predicate ``P`` in the premise vocabulary, naturalize it
+    (``HonorRoll`` -> ``"honor roll"``; ``EligibleForScholarship`` ->
+    ``"eligible for scholarship"``). Then require ALL of the
+    naturalized phrase's CONTENT words (after stop-word strip) to appear
+    in the question text. This is permissive enough to handle inserted
+    articles (``"eligible for A scholarship"`` ✓) and possessives
+    (``"the honor roll's"`` ✓) without false-positive matching on bare
+    single words like "student".
+
+    Catches the 3B-translator pattern of dropping qualifier phrases.
+    """
+    q_words = set(re.findall(r"[a-z]+", question.lower()))
+    expected: set[str] = set()
+    for pred in vocab:
+        natural = _naturalize_predicate(pred)
+        if len(natural) < 5 or " " not in natural:
+            # Single-word predicates ("Student", "HasGPA") are too common as
+            # substrings; we only infer expectation from multi-word phrases.
+            continue
+        content_words = [
+            w for w in natural.split() if w not in _STOP_WORDS and len(w) >= 3
+        ]
+        if not content_words:
+            continue
+        if all(w in q_words for w in content_words):
+            expected.add(pred)
+    return expected
 
 
 def _collect_predicate_vocab(premises_fol: list[str]) -> set[str]:
