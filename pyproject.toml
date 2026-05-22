@@ -114,6 +114,9 @@ ignore = [
 "tests/unit/test_llm_extractor_self_consistency.py" = ["RUF001", "RUF002", "RUF003"]
 "tests/unit/test_rag_retriever.py" = ["RUF001", "RUF002", "RUF003", "E501"]
 "scripts/iterate_10_failing.py" = ["RUF001", "RUF002", "RUF003"]
+# Iter-8: per-sample root-cause classifier surfaced the 20-row dimension
+# mismatch hypothesis. Many branches by design (1 per failure bucket).
+"scripts/analyze_iter7_failures.py" = ["RUF001", "RUF002", "RUF003", "PLR0911"]
 
 [tool.mypy]
 python_version = "3.11"
