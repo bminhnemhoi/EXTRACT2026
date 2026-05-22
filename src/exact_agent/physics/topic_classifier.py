@@ -24,6 +24,7 @@ from dataclasses import dataclass
 
 from exact_agent.physics.formula_library import Formula, FormulaLibrary
 from exact_agent.physics.quantity_extractor import ExtractedQuantity
+from exact_agent.physics.unit_converter import get_registry
 
 
 @dataclass(frozen=True)
@@ -756,6 +757,132 @@ def _is_force_asking(question_lower: str) -> bool:
     return any(tok in ask for tok in _FORCE_ASK_TOKENS)
 
 
+# ---------------------------------------------------------------------------
+# Iter-10: Target-Unit Guard v2 (the user's "nhìn đơn vị để biết mình có đi
+# sai đường không" check, finally done correctly).
+#
+# Pre-Iter-8 attempt failed because it scanned the WHOLE prompt with first-
+# match. Setup phrases like "voltage across it is 150 V" wrongly triggered
+# the volt-intent hint and blocked legitimate capacitance/energy formulas.
+# This v2 fixes both problems:
+#
+#   1. Scan only the LAST imperative sentence via _extract_question_sentence
+#      (so data-mentions in setup are out of scope).
+#   2. Hints must be VERB-PREFIXED ("calculate the X", "find the X", etc.)
+#      — bare noun phrases stay out.
+#   3. Longest-match wins (so "calculate the electric field energy" beats
+#      its prefix "calculate the electric field" for joule vs V/m).
+#
+# When the guard infers a target dimension, any formula whose declared
+# output_unit doesn't share that dimension is REJECTED at routing time
+# (in classify) and at fallback time (in _symbol_match), so the dim-
+# wrong formula can't silently win.
+# ---------------------------------------------------------------------------
+
+_INTENT_DIMENSION_HINTS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("calculate the electric field", "find the electric field",
+      "what is the electric field", "determine the electric field",
+      "magnitude of the electric field",
+      "resultant electric field",
+      "electric field at point", "field intensity",
+      "field strength at"), "volt/meter"),
+    (("calculate the force", "find the force", "what is the force",
+      "determine the force",
+      "calculate the net force", "find the net force",
+      "calculate the electric force", "find the electric force",
+      "calculate the electrostatic force",
+      "magnitude of the force",
+      "force acting on", "force on the", "force exerted on"),
+     "newton"),
+    (("calculate the voltage", "find the voltage",
+      "what is the voltage", "determine the voltage",
+      "calculate ul", "calculate u_l",
+      "calculate the potential difference",
+      "what is the potential difference",
+      "find the potential difference",
+      "calculate the rms voltage", "find the rms voltage"), "volt"),
+    (("calculate the charge", "what is the charge", "find the charge",
+      "determine the charge",
+      "the charge on the capacitor", "the charge (mc)"), "coulomb"),
+    (("calculate the capacitance", "what is the capacitance",
+      "find the capacitance", "determine the capacitance",
+      "calculate its capacitance"), "farad"),
+    (("calculate the energy", "what is the energy",
+      "find the energy", "determine the energy",
+      "calculate the electric field energy",
+      "what is the electric field energy",
+      "find the electric field energy",
+      "calculate the stored energy",
+      "energy stored in"), "joule"),
+    (("calculate the current", "find the current",
+      "what is the current", "determine the current",
+      "calculate the rms current"), "ampere"),
+    (("calculate the resistance",
+      "what is the resistance", "find the resistance",
+      "determine the resistance",
+      "equivalent resistance"), "ohm"),
+    (("calculate the impedance", "what is the impedance",
+      "find the impedance", "determine the impedance",
+      "capacitive reactance", "calculate z_c",
+      "calculate the capacitive reactance"), "ohm"),
+    (("resonance frequency", "resonant frequency", "natural frequency",
+      "frequency of resonance"), "hertz"),
+    (("natural period", "period of oscillation"), "second"),
+    (("magnetic flux through", "magnetic flux linkage",
+      "total flux linkage", "calculate the total flux"), "weber"),
+    (("calculate the magnetic field", "find the magnetic field",
+      "magnetic field inside", "magnetic flux density"),
+     "tesla"),
+    (("calculate the inductance", "what is the inductance",
+      "find the inductance"), "henry"),
+    (("quality factor", "calculate the quality factor",
+      "what is the quality factor", "find the quality factor",
+      "calculate the power factor", "what is the power factor",
+      "find the power factor", "determine the power factor",
+      "power factor", "cos(phi)", "cosφ"), "dimensionless"),
+    (("percentage loss", "percent loss", "% loss"), "dimensionless"),
+    (("calculate the maximum power", "calculate the power",
+      "find the power", "what is the power",
+      "power consumed", "power dissipated", "active power"), "watt"),
+)
+
+
+def _infer_expected_output_dim(question_lower: str):
+    """Iter-10: infer the pint dimensionality the question is asking for.
+
+    Scans ONLY the last imperative sentence (returned by
+    :func:`_extract_question_sentence`) and picks the LONGEST matching
+    hint phrase. Returns ``None`` when no hint matches — caller must NOT
+    reject any formula in that case (insufficient signal).
+    """
+    ask = _extract_question_sentence(question_lower)
+    ureg = get_registry()
+    best_len, best_unit = 0, None
+    for phrases, target_unit in _INTENT_DIMENSION_HINTS:
+        for phrase in phrases:
+            if phrase in ask and len(phrase) > best_len:
+                best_len = len(phrase)
+                best_unit = target_unit
+    if best_unit is None:
+        return None
+    try:
+        return ureg.parse_expression(best_unit).dimensionality
+    except Exception:
+        return None
+
+
+def _formula_output_compatible(formula: Formula, expected_dim) -> bool:
+    """True if ``formula``'s output unit shares ``expected_dim``."""
+    if expected_dim is None:
+        return True  # no intent inferred -> don't reject anything
+    ureg = get_registry()
+    try:
+        formula_dim = ureg.parse_expression(formula.output_unit).dimensionality
+    except Exception:
+        return True  # lenient if formula unit doesn't parse
+    return bool(formula_dim == expected_dim)
+
+
 def _keyword_match(question: str) -> tuple[str, str] | None:
     lower = question.lower()
     field_asked = _is_field_asking(lower)
@@ -800,12 +927,18 @@ def _symbol_match(
     extracted_names = {q.name for q in quantities}
     field_asked = _is_field_asking(question_lower)
     force_asked = _is_force_asking(question_lower)
+    # Iter-10: target-unit guard at the fallback level too.
+    expected_dim = _infer_expected_output_dim(question_lower)
 
     best: tuple[Formula, float, str] | None = None
     for formula in library.all():
         if field_asked and formula.id in _FORCE_FORMULAS:
             continue
         if force_asked and formula.id in _FIELD_FORMULAS:
+            continue
+        # Iter-10: reject any formula whose declared output unit can't
+        # reach the dimension the ask sentence wants.
+        if not _formula_output_compatible(formula, expected_dim):
             continue
         required = set(formula.required_symbols())
         if not required:
@@ -830,14 +963,27 @@ def classify(
     quantities: list[ExtractedQuantity],
     library: FormulaLibrary,
 ) -> ClassificationResult | None:
-    """Return the best-matching formula id, or None if we cannot decide."""
+    """Return the best-matching formula id, or None if we cannot decide.
+
+    Iter-10: when the target-unit guard fires (a verb-prefixed intent
+    phrase was matched in the ask sentence), a keyword hit whose declared
+    output unit conflicts with the inferred target dimension is dropped
+    and routing falls through to the dimension-filtered symbol fallback.
+    """
     question_lower = question.lower()
+    expected_dim = _infer_expected_output_dim(question_lower)
 
     keyword = _keyword_match(question)
     if keyword is not None:
         formula_id, reason = keyword
         if formula_id in library:
-            return ClassificationResult(formula_id=formula_id, confidence=0.9, reason=reason)
+            kw_formula = library[formula_id]
+            if _formula_output_compatible(kw_formula, expected_dim):
+                return ClassificationResult(
+                    formula_id=formula_id, confidence=0.9, reason=reason,
+                )
+            # Keyword matched but output dim incompatible with inferred
+            # target — fall through to dim-filtered symbol fallback.
 
     fallback = _symbol_match(library, quantities, question_lower)
     if fallback is not None:
