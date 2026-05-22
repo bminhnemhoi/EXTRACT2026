@@ -29,9 +29,9 @@ from dataclasses import dataclass
 import z3
 
 from exact_agent.logic.fol_parser import parse_fol
-from exact_agent.logic.types import Atom, Comparison, Rule
+from exact_agent.logic.types import Atom, Comparison, Existential, Rule
 
-_Item = "Atom | Comparison | Rule"
+_Item = "Atom | Comparison | Rule | Existential"
 _Lit = "Atom | Comparison"
 
 
@@ -51,8 +51,10 @@ class Z3VerificationResult:
     skipped_premises: int
 
 
-def _bound_vars(item: Atom | Comparison | Rule) -> set[str]:
-    return set(item.quantified_vars) if isinstance(item, Rule) else set()
+def _bound_vars(item: Atom | Comparison | Rule | Existential) -> set[str]:
+    if isinstance(item, (Rule, Existential)):
+        return set(item.quantified_vars)
+    return set()
 
 
 def _is_variable(token: str) -> bool:
@@ -60,13 +62,15 @@ def _is_variable(token: str) -> bool:
     return len(token) == 1 and token.islower()
 
 
-def _lits(item: Atom | Comparison | Rule) -> tuple[Atom | Comparison, ...]:
+def _lits(item: Atom | Comparison | Rule | Existential) -> tuple[Atom | Comparison, ...]:
     if isinstance(item, Rule):
         return (*item.body, item.head)
+    if isinstance(item, Existential):
+        return tuple(item.body)
     return (item,)
 
 
-def _collect_constants(items: list[Atom | Comparison | Rule]) -> set[str]:
+def _collect_constants(items: list[Atom | Comparison | Rule | Existential]) -> set[str]:
     constants: set[str] = set()
     for item in items:
         bound = _bound_vars(item)
@@ -79,8 +83,8 @@ def _collect_constants(items: list[Atom | Comparison | Rule]) -> set[str]:
 
 
 def _build_environment(
-    parsed_items: list[Atom | Comparison | Rule],
-    extras: list[Atom | Comparison | Rule] | None = None,
+    parsed_items: list[Atom | Comparison | Rule | Existential],
+    extras: list[Atom | Comparison | Rule | Existential] | None = None,
 ) -> tuple[
     z3.SortRef,
     dict[tuple[str, int], z3.FuncDeclRef],
@@ -99,7 +103,7 @@ def _build_environment(
     practical option given imperfect upstream NL->FOL translation.
     """
     Entity = z3.DeclareSort("Entity")
-    everything: list[Atom | Comparison | Rule] = list(parsed_items)
+    everything: list[Atom | Comparison | Rule | Existential] = list(parsed_items)
     if extras:
         everything.extend(extras)
 
@@ -225,11 +229,47 @@ def _rule_to_z3(
     return z3.ForAll(list(binders.values()), z3.Implies(body_conj, head_term))
 
 
+def _existential_to_z3(
+    ex: Existential,
+    *,
+    Entity: z3.SortRef,
+    predicates: dict[tuple[str, int], z3.FuncDeclRef],
+    cmp_funcs: dict[tuple[str, int], z3.FuncDeclRef],
+    constants_map: dict[str, z3.ExprRef],
+) -> z3.BoolRef:
+    """Iter-9: encode ``∃x_1 … x_n (a(...) ∧ b(...) ∧ …)`` as a z3.Exists.
+
+    Soundness note: Z3 handles ∃-claims and ∃-premises in the standard
+    way. The crucial behaviour for 42_q1-style problems is that having
+    two SEPARATE ∃ premises ``∃x(P(x))`` and ``∃x(Q(x))`` does NOT
+    entail ``∃x(P(x) ∧ Q(x))`` — different witnesses can satisfy each.
+    Z3 will correctly return ``sat`` for the ``premises ∧ ¬claim`` check
+    (claim is not entailed) AND ``sat`` for ``premises ∧ claim`` (claim
+    is not refuted either) → verdict = Unknown for ambiguous existentials.
+    For the case where premises explicitly provide a witness for the
+    conjunction, Z3 returns the right entailment.
+    """
+    binders = {v: z3.Const(v, Entity) for v in ex.quantified_vars}
+    body_terms = [
+        _lit_to_z3(
+            a,
+            Entity=Entity,
+            predicates=predicates,
+            cmp_funcs=cmp_funcs,
+            constants_map=constants_map,
+            binders=binders,
+        )
+        for a in ex.body
+    ]
+    body_conj = body_terms[0] if len(body_terms) == 1 else z3.And(*body_terms)
+    return z3.Exists(list(binders.values()), body_conj)
+
+
 def _parse_premises(
     premises_fol: list[str],
-) -> tuple[list[Atom | Comparison | Rule], list[int], list[int]]:
+) -> tuple[list[Atom | Comparison | Rule | Existential], list[int], list[int]]:
     """Parse every FOL premise; return (parsed, parsed_idx, skipped_idx)."""
-    parsed: list[Atom | Comparison | Rule] = []
+    parsed: list[Atom | Comparison | Rule | Existential] = []
     parsed_idx: list[int] = []
     skipped_idx: list[int] = []
     for i, raw in enumerate(premises_fol, start=1):
@@ -271,9 +311,17 @@ def verify_with_z3(
         parsed_items, extras=[parsed_claim]
     )
 
-    def _encode(item: Atom | Comparison | Rule) -> z3.BoolRef:
+    def _encode(item: Atom | Comparison | Rule | Existential) -> z3.BoolRef:
         if isinstance(item, Rule):
             return _rule_to_z3(
+                item,
+                Entity=Entity,
+                predicates=predicates,
+                cmp_funcs=cmp_funcs,
+                constants_map=constants_map,
+            )
+        if isinstance(item, Existential):
+            return _existential_to_z3(
                 item,
                 Entity=Entity,
                 predicates=predicates,

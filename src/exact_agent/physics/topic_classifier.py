@@ -19,6 +19,7 @@ recall.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from exact_agent.physics.formula_library import Formula, FormulaLibrary
@@ -663,6 +664,16 @@ _FORCE_FORMULAS: frozenset[str] = frozenset({
     "coulomb_force_perp_bisector",
     "coulomb_force_equilateral_three_identical",
     "resultant_two_forces",
+    # Iter-9b: 4 force-output formulas that were silently bypassing the
+    # field-vs-force guard. Safe to include now because the guard scans
+    # only the LAST imperative sentence (via _extract_question_sentence),
+    # so compound DT005/006-style questions whose ASK is "calculate the
+    # electric force" correctly route to one of these force formulas
+    # without being blocked by an earlier "field strength" setup phrase.
+    "coulomb_force_two_opposite_sources_isoceles_apex",
+    "coulomb_force_two_sources_right_triangle_apex",
+    "coulomb_force_on_charge_between_two_identical",
+    "coulomb_force_collinear_opposite_signs",
 })
 # Iter-4 Fix D — the inverse guard. Symmetric to _FORCE_FORMULAS so a
 # "calculate the net force" question doesn't trip a field-output formula
@@ -702,12 +713,47 @@ _FIELD_ASK_TOKENS: tuple[str, ...] = (
 )
 
 
+# Iter-9b: imperative verbs that mark the QUESTION sentence (where the
+# actual ask lives). Used to isolate the ask from data/setup sentences.
+_IMPERATIVE_VERBS: tuple[str, ...] = (
+    "calculate", "find", "determine", "compute", "evaluate",
+    "what is", "what are", "how much", "how many",
+)
+
+# Sentence splitter — match ". " / "? " / "! " boundaries.
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def _extract_question_sentence(question_lower: str) -> str:
+    """Return the LAST sentence of ``question_lower`` that starts an
+    imperative ask (Calculate/Find/What is/...). Falls back to the full
+    prompt when no imperative sentence is found.
+
+    Iter-9b motivation: compound physics questions like DT005 mix SETUP
+    sentences ("two charges placed at A and B... field strength caused at
+    point C") with the ACTUAL ASK ("Calculate the electric force on
+    q3 at C"). Substring matching against the whole prompt picks up the
+    setup phrase and infers the wrong intent. Isolating the last
+    imperative sentence gives much sharper signal.
+    """
+    sentences = _SENTENCE_SPLIT_RE.split(question_lower.strip())
+    imperatives = [s for s in sentences if any(v in s for v in _IMPERATIVE_VERBS)]
+    if imperatives:
+        return imperatives[-1]
+    return question_lower
+
+
 def _is_field_asking(question_lower: str) -> bool:
-    return any(tok in question_lower for tok in _FIELD_ASK_TOKENS)
+    # Iter-9b: scan only the LAST imperative sentence so a setup phrase
+    # like "the field strength at M" in an earlier sentence doesn't
+    # falsely trigger this on a force-asking question.
+    ask = _extract_question_sentence(question_lower)
+    return any(tok in ask for tok in _FIELD_ASK_TOKENS)
 
 
 def _is_force_asking(question_lower: str) -> bool:
-    return any(tok in question_lower for tok in _FORCE_ASK_TOKENS)
+    ask = _extract_question_sentence(question_lower)
+    return any(tok in ask for tok in _FORCE_ASK_TOKENS)
 
 
 def _keyword_match(question: str) -> tuple[str, str] | None:

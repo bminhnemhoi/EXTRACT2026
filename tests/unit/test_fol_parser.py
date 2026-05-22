@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from exact_agent.logic.fol_parser import parse_atom, parse_fol
-from exact_agent.logic.types import Atom, Comparison, Rule
+from exact_agent.logic.types import Atom, Comparison, Existential, Rule
 
 
 class TestParseAtom:
@@ -50,10 +50,27 @@ class TestParseFol:
         assert isinstance(parsed, Atom)
         assert parsed.polarity == "neg"
 
-    def test_existential_skipped(self) -> None:
-        # Day-4/5 baseline doesn't handle ∃; should return None.
+    def test_existential_parsed_as_existential(self) -> None:
+        # Iter-9: ∃ now parses as Existential (was None pre-Iter-9).
         parsed = parse_fol("∃x P(x)", premise_id="P4")
-        assert parsed is None
+        assert isinstance(parsed, Existential)
+        assert parsed.quantified_vars == ("x",)
+        assert len(parsed.body) == 1
+        assert parsed.body[0].predicate == "P"
+
+    def test_existential_conjunction(self) -> None:
+        # 42_q1 premise shape: ∃x(HonorRoll(x) ∧ EligibleForScholarship(x))
+        parsed = parse_fol(
+            "∃x(HonorRoll(x) ∧ EligibleForScholarship(x))", premise_id="P9"
+        )
+        assert isinstance(parsed, Existential)
+        assert {a.predicate for a in parsed.body} == {
+            "HonorRoll", "EligibleForScholarship"
+        }
+
+    def test_exists_ascii_form(self) -> None:
+        parsed = parse_fol("Exists(x, HonorRoll(x))", premise_id="P1")
+        assert isinstance(parsed, Existential)
 
     def test_unbalanced_returns_none(self) -> None:
         parsed = parse_fol("∀x (P(x) → ", premise_id="P5")

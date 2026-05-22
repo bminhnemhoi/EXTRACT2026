@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import re
 
-from exact_agent.logic.types import Atom, Comparison, Rule
+from exact_agent.logic.types import Atom, Comparison, Existential, Rule
 
 # ---------------------------------------------------------------------------
 # Atoms & comparisons
@@ -156,6 +156,8 @@ def _split_conjuncts(body_text: str) -> list[str]:
 
 _UNI_UNICODE = re.compile(r"^∀\s*(?P<var>[A-Za-z]\w*)\s*")
 _UNI_FORALL = re.compile(r"^ForAll\s*\(\s*(?P<var>[A-Za-z]\w*)\s*,\s*", re.IGNORECASE)
+_EXI_UNICODE = re.compile(r"^∃\s*(?P<var>[A-Za-z]\w*)\s*")
+_EXI_EXISTS = re.compile(r"^Exists\s*\(\s*(?P<var>[A-Za-z]\w*)\s*,\s*", re.IGNORECASE)
 
 
 def _peel_universals(text: str) -> tuple[list[str], str] | None:
@@ -185,15 +187,82 @@ def _peel_universals(text: str) -> tuple[list[str], str] | None:
     return vars_, text
 
 
-def parse_fol(text: str, premise_id: str) -> Atom | Comparison | Rule | None:  # noqa: PLR0911
-    """Parse one FOL line into a ground Atom/Comparison (fact) or a Rule."""
+def _peel_existentials(text: str) -> tuple[list[str], str] | None:
+    """Iter-9: strip leading ∃/Exists layers. Returns (vars, matrix) or
+    None if a ∀ leaks into a position we don't support (mixed ∃∀ quantifier
+    alternation is rare in this dataset; we punt to None to stay sound).
+    """
+    vars_: list[str] = []
+    text = text.strip()
+    while True:
+        text = _strip_balanced_parens(text).strip()
+        # ∀ inside an ∃ scope is an unsupported alternation for our model.
+        if text.startswith("∀") or re.match(r"^ForAll\s*\(", text, re.IGNORECASE):
+            return None
+        m = _EXI_UNICODE.match(text)
+        if m:
+            vars_.append(m.group("var"))
+            text = text[m.end() :].strip()
+            continue
+        m = _EXI_EXISTS.match(text)
+        if m:
+            vars_.append(m.group("var"))
+            rest = text[m.end() :].strip()
+            if rest.endswith(")"):
+                rest = rest[:-1].strip()
+            text = rest
+            continue
+        break
+    if not vars_:
+        return None
+    return vars_, text
+
+
+def parse_fol(  # noqa: PLR0911, PLR0912
+    text: str, premise_id: str
+) -> Atom | Comparison | Rule | Existential | None:
+    """Parse one FOL line into a ground Atom/Comparison/Rule/Existential.
+
+    Iter-9: ``∃x(...)`` / ``Exists(x, ...)`` patterns previously returned
+    ``None``, silently dropping ~138 dataset premises (68% of rows). Now
+    parsed into an :class:`Existential` node so the Z3 backend can emit
+    ``z3.Exists`` and let entailment queries see the witness.
+    """
     raw = text.strip()
     if not raw:
         return None
-    if raw.startswith("∃") or re.match(r"^Exists\s*\(", raw, re.IGNORECASE):
-        return None
     if "∨" in raw or "↔" in raw:
         return None  # disjunction / biconditional not supported
+
+    # Iter-9: existential body — strip the leading ∃ layers then parse
+    # the conjunction inside.
+    is_existential = raw.startswith("∃") or re.match(r"^Exists\s*\(", raw, re.IGNORECASE)
+    if is_existential:
+        peeled = _peel_existentials(raw)
+        if peeled is None:
+            return None
+        bound_vars, matrix = peeled
+        matrix = _strip_balanced_parens(matrix)
+        if not matrix:
+            return None
+        # An existential matrix is a conjunction of literals (no implication).
+        # We deliberately do NOT support ∃ over implications since those are
+        # semantically unusual and rare in this dataset.
+        if "→" in matrix:
+            return None
+        body_atoms: list[Atom | Comparison] = []
+        for conj in _split_conjuncts(matrix):
+            a = parse_atom(conj)
+            if a is None:
+                return None
+            body_atoms.append(a)
+        if not body_atoms:
+            return None
+        return Existential(
+            quantified_vars=tuple(bound_vars),
+            body=tuple(body_atoms),
+            source_premise_id=premise_id,
+        )
 
     is_universal = raw.startswith("∀") or re.match(r"^ForAll\s*\(", raw, re.IGNORECASE)
     if is_universal:
@@ -207,7 +276,7 @@ def parse_fol(text: str, premise_id: str) -> Atom | Comparison | Rule | None:  #
         sides = _split_top(matrix, "→")
         if len(sides) != 2:
             return None  # need exactly body → head
-        body_atoms: list[Atom | Comparison] = []
+        body_atoms = []
         for conj in _split_conjuncts(sides[0]):
             a = parse_atom(conj)
             if a is None:

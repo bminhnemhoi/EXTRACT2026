@@ -94,6 +94,33 @@ class Rule:
 
 
 @dataclass(frozen=True)
+class Existential:
+    """An existentially-quantified conjunction of atoms.
+
+    Iter-9: 138 of the dataset's FOL premises use ``∃x(...)`` form
+    (68% of rows have at least one). Previously the parser rejected
+    these outright, silently dropping critical premises and forcing
+    the Z3 backend to abstain on 30+ rows. Representing them as a
+    distinct AST node lets the Z3 encoder emit ``z3.Exists`` directly.
+
+    Body is the conjunction inside the existential scope. Example::
+
+        ∃x(HonorRoll(x) ∧ EligibleForScholarship(x))
+        => Existential(quantified_vars=('x',),
+                       body=(HonorRoll(x), EligibleForScholarship(x)))
+    """
+
+    quantified_vars: tuple[str, ...]
+    body: tuple[Atom | Comparison, ...]
+    source_premise_id: str  # e.g. "P3"
+
+    def __str__(self) -> str:
+        body_str = " ∧ ".join(str(a) for a in self.body)
+        qs = "".join(f"∃{v}" for v in self.quantified_vars)
+        return f"{qs} ({body_str})"
+
+
+@dataclass(frozen=True)
 class Fact:
     """A grounded atom, with a pointer back to the premise that introduced it."""
 
