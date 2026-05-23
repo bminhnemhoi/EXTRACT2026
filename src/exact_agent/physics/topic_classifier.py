@@ -186,6 +186,12 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
             "air parallel-plate capacitor",
             "parallel-plate air capacitor",
             "air-filled parallel-plate",
+            # Iter-15b: TD062 writes "parallel plate" without the hyphen —
+            # add the unhyphenated variants so the routing catches it
+            # before the generic "calculate its capacitance" rule below.
+            "air parallel plate capacitor",
+            "parallel plate air capacitor",
+            "air-filled parallel plate",
         ),
         "parallel_plate_capacitance",
     ),
@@ -576,6 +582,16 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (
         ("resistors in series", "two resistors connected", "series resistors"),
         "series_resistance_two",
+    ),
+    # Iter-15c: DDT349-style "voltage U = X V and current I = Y A. Calculate
+    # the total impedance Z" — direct Z = U/I, not the RLC form which needs
+    # R, X_L, X_C. Trigger BEFORE rlc_impedance so the simpler formula wins
+    # when the question only gives U and I.
+    (
+        (
+            "voltage u = ", "current i = ", "rms voltage u =", "rms current i =",
+        ),
+        "impedance_from_voltage_current",
     ),
     (("rlc impedance", "impedance of", "total impedance"), "rlc_impedance"),
     (("solenoid",), "magnetic_field_solenoid"),

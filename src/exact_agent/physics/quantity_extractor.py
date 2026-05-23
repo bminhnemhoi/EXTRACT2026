@@ -102,8 +102,14 @@ _ASSIGNMENT_RE = re.compile(
 # to all left-hand variables. Up to 4 vars in chain (equilateral, isosceles
 # right, etc. — the dataset's common patterns).
 _CHAIN_EQ_RE = re.compile(
-    rf"(?P<n1>{_VAR_NAME})\s*=\s*(?P<n2>{_VAR_NAME})\s*=\s*"
-    rf"(?:(?P<n3>{_VAR_NAME})\s*=\s*(?:(?P<n4>{_VAR_NAME})\s*=\s*)?)?"
+    # Iter-15: each chained variable may carry an optional negation sign
+    # (LD053-style ``q1 = -q2 = 6 × 10^-6 C`` -> q1=+6e-6, q2=-6e-6).
+    # `sN` captures the optional ``-`` per variable; processing flips
+    # the value's sign for any name whose sN group is `-`.
+    rf"(?P<s1>-?)\s*(?P<n1>{_VAR_NAME})\s*=\s*"
+    rf"(?P<s2>-?)\s*(?P<n2>{_VAR_NAME})\s*=\s*"
+    rf"(?:(?P<s3>-?)\s*(?P<n3>{_VAR_NAME})\s*=\s*"
+    rf"(?:(?P<s4>-?)\s*(?P<n4>{_VAR_NAME})\s*=\s*)?)?"
     rf"(?P<value>{_NUMBER})\s*(?P<unit>{_UNIT})?",
     re.UNICODE,
 )
@@ -315,6 +321,8 @@ def extract_quantities(text: str) -> list[ExtractedQuantity]:  # noqa: PLR0912, 
 
     # Pass 2 (run first to claim multi-name spans before pass 1 sees them):
     # chained equality broadcasts the value to every left-hand variable.
+    # Iter-15: each variable may carry an optional negation prefix
+    # (q1 = -q2 = VALUE -> q1=+VALUE, q2=-VALUE).
     for match in _CHAIN_EQ_RE.finditer(normalized):
         raw_value = match.group("value")
         raw_unit = _clean_unit(match.group("unit"))
@@ -322,18 +330,22 @@ def extract_quantities(text: str) -> list[ExtractedQuantity]:  # noqa: PLR0912, 
             value = _parse_value(raw_value)
         except ValueError:
             continue
-        names = [
-            match.group(f"n{i}") for i in (1, 2, 3, 4) if match.group(f"n{i}")
+        named_with_sign = [
+            (match.group(f"n{i}"), match.group(f"s{i}") == "-")
+            for i in (1, 2, 3, 4)
+            if match.group(f"n{i}")
         ]
-        if len(names) < 2:
+        if len(named_with_sign) < 2:
             continue
-        for name in names:
+        for name, negated in named_with_sign:
             if name in seen_names:
                 continue
+            v = -value if negated else value
+            rv = f"-{raw_value}" if negated else raw_value
             results.append(
                 ExtractedQuantity(
-                    name=name, value=value, unit=raw_unit,
-                    raw_value=raw_value, raw_unit=raw_unit,
+                    name=name, value=v, unit=raw_unit,
+                    raw_value=rv, raw_unit=raw_unit,
                 )
             )
             seen_names.add(name)
