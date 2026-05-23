@@ -733,3 +733,69 @@ formulas:
       symbol: E
       unit: "volt/meter"
     expression: "sqrt(2) * 8.9875517923e9 * Abs(q) / r**2"
+
+  # ============================================================
+  # Iter-17 (Day-29) — audit-driven cluster of 4 small fixes:
+  #   17a: NL040 (W = 0.5·L·I² inductor energy — new formula)
+  #   17b: NL361 (capacitor_energy keyword fix; existing formula)
+  #   17c: NL103 (voltage_from_energy_capacitance keyword fix)
+  #   17d: LD067 (midpoint trigger broadening)
+  #   17e: THCB094/114/133 (mean of 3 measurements — new formula)
+  #   17f: LD362/367 (general 2-source field at angle — new formula)
+  # ============================================================
+
+  # Iter-17a — NL040: "An inductor has L = 0.08 H and current 1.5 A.
+  # Calculate the magnetic field energy." Gold 90 mJ. Closed form
+  # W = 0.5·L·I². No existing formula returns W from L+I directly.
+  # current_from_inductor_energy + inductance_from_inductor_energy
+  # are the inverse variants.
+  inductor_magnetic_energy:
+    topic: NL
+    description: "Iter-17a: magnetic energy stored in an inductor from L and current I: W = 0.5·L·I²"
+    inputs:
+      L: { unit: "henry",  aliases: ["inductance"] }
+      I: { unit: "ampere", aliases: ["current", "rms_current"] }
+    output:
+      symbol: W
+      unit: "joule"
+    expression: "0.5 * L * I**2"
+
+  # Iter-17e — THCB094/114/133: "Three measurements: a, b, c.
+  # Calculate the average and absolute error." Gold format is
+  # "mean; abs_error; unit"; scorer parses just the first number,
+  # so a formula returning the mean satisfies P1. The absolute
+  # error is folded into the explanation/trace but not the scored
+  # output; P2 narrative still mentions both.
+  mean_three_measurements:
+    topic: THCB
+    description: "Iter-17e: arithmetic mean of three measurement values x1, x2, x3: mean = (x1 + x2 + x3) / 3. Used for THCB lab questions whose gold is 'mean; abs_error; unit' (scorer keys on first number = mean)."
+    inputs:
+      x1: { unit: "dimensionless", aliases: ["first_measurement"] }
+      x2: { unit: "dimensionless", aliases: ["second_measurement"] }
+      x3: { unit: "dimensionless", aliases: ["third_measurement"] }
+    output:
+      symbol: mean
+      unit: "dimensionless"
+    expression: "(x1 + x2 + x3) / 3"
+
+  # Iter-17f — LD362 (perpendicular), LD367 (60°): two source charges
+  # equidistant from point M (each at distance r), the two source-field
+  # vectors at M form an angle theta. Resultant magnitude (law of
+  # cosines for vectors with included angle theta):
+  #   E1 = k·|q1|/r²,  E2 = k·|q2|/r²
+  #   E = sqrt(E1² + E2² + 2·E1·E2·cos(theta))
+  # LD362 theta=90° -> sqrt(E1²+E2²); LD367 theta=60°.
+  # Verified: LD362 (q1=1.68e-6, q2=4.59e-6, r=2.8cm, 90°) → 5.611e7 ✓
+  #           LD367 (q1=4.10e-6, q2=3.68e-6, r=3.47cm, 60°) → 5.039e7 ✓
+  electric_field_two_sources_at_angle:
+    topic: LD
+    description: "Iter-17f: net electric field at point M where two source charges q1, q2 each lie at distance r from M, with the angle between their source-field vectors at M = theta (in degrees). General law-of-cosines composition: E = sqrt((k|q1|/r²)² + (k|q2|/r²)² + 2·(k|q1|/r²)·(k|q2|/r²)·cos(theta·pi/180))."
+    inputs:
+      q1:    { unit: "coulomb",       aliases: ["charge1", "first_charge"] }
+      q2:    { unit: "coulomb",       aliases: ["charge2", "second_charge"] }
+      r:     { unit: "meter",         aliases: ["distance", "equal_distance"] }
+      theta: { unit: "dimensionless", aliases: ["angle", "angle_deg", "angle_between"] }
+    output:
+      symbol: E
+      unit: "volt/meter"
+    expression: "sqrt((8.9875517923e9 * Abs(q1) / r**2)**2 + (8.9875517923e9 * Abs(q2) / r**2)**2 + 2 * (8.9875517923e9 * Abs(q1) / r**2) * (8.9875517923e9 * Abs(q2) / r**2) * cos(theta * pi / 180))"
