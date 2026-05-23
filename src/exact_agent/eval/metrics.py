@@ -45,6 +45,14 @@ _SUPERSCRIPT_TRANSLATE = str.maketrans({
     "⁻": "-", "⁺": "+",
 })
 
+# Iter-18a (Day-29): dataset-specific notations the existing regex
+# can't parse. The Vietnamese-style "X . 10^Y" dot-multiplier and the
+# Latex "10^{N}" braces appear in 2+ holdout golds (DT046 "3 . 10^4",
+# DT051 "1.22 . 10^{-3}"). Normalised away before _NUMBER_RE runs so
+# no regex edit is needed.
+_DOT_MULTIPLIER_RE = re.compile(r"\s+\.\s+10\s*\^")
+_LATEX_BRACE_EXP_RE = re.compile(r"10\s*\^\s*\{\s*([-+]?\d+)\s*\}")
+
 
 def parse_number(text: str | float | int | None) -> float | None:
     """Best-effort numeric coercion. Returns ``None`` on failure."""
@@ -56,6 +64,9 @@ def parse_number(text: str | float | int | None) -> float | None:
     s = str(text).strip().translate(_SUPERSCRIPT_TRANSLATE)
     if not s:
         return None
+    # Iter-18a: normalise "X . 10^Y" -> "X * 10^Y" and "10^{N}" -> "10^N".
+    s = _LATEX_BRACE_EXP_RE.sub(r"10^\1", s)
+    s = _DOT_MULTIPLIER_RE.sub(" * 10^", s)
     # Try literal first.
     try:
         v = float(s.replace(",", ""))
