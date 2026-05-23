@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from exact_agent.logic.z3_verifier import verify_with_z3
+from exact_agent.logic.z3_verifier import (
+    has_named_witness_for_existential,
+    verify_with_z3,
+)
 
 
 class TestZ3Verifier:
@@ -115,3 +118,49 @@ class TestMixedArity:
             "∀x (∀y (Has(x, y) → Holds(x)))",
         ]
         assert verify_with_z3(premises, "Holds(Alice)").verdict == "Yes"
+
+
+class TestNamedWitnessForExistential:
+    """Iter-14a: the witness-aware upgrade differentiates anonymous-∃ +
+    universal-chain (no named witness) from cases where a NAMED ground
+    constant actually satisfies the claim's conjunction. This is what
+    keeps the heuristic robust on public-test rows where premises do
+    establish a named witness (``John has P, John has Q`` style).
+    """
+
+    def test_anonymous_existentials_have_no_named_witness(self) -> None:
+        # 42_q1 shape: separate ∃ premises + universal chain. Z3 classical
+        # reasoning says Yes, but no SINGLE named constant satisfies both
+        # conjuncts → witness check returns False → pipeline demotes to No.
+        premises = [
+            "∃x(HonorRoll(x))",
+            "∀x(HonorRoll(x) → HighGPA(x))",
+            "∀x(HighGPA(x) → EligibleForScholarship(x))",
+        ]
+        claim = "∃x (HonorRoll(x) ∧ EligibleForScholarship(x))"
+        assert has_named_witness_for_existential(premises, claim) is False
+
+    def test_named_witness_directly_satisfies_conjunction(self) -> None:
+        premises = [
+            "HonorRoll(John)",
+            "EligibleForScholarship(John)",
+        ]
+        claim = "∃x (HonorRoll(x) ∧ EligibleForScholarship(x))"
+        assert has_named_witness_for_existential(premises, claim) is True
+
+    def test_named_witness_via_universal_chain_is_accepted(self) -> None:
+        # Named constant + universal rule should still count: John has
+        # HonorRoll directly, chain derives EligibleForScholarship for John,
+        # so John IS a witness for the conjunction.
+        premises = [
+            "HonorRoll(John)",
+            "∀x(HonorRoll(x) → EligibleForScholarship(x))",
+        ]
+        claim = "∃x (HonorRoll(x) ∧ EligibleForScholarship(x))"
+        assert has_named_witness_for_existential(premises, claim) is True
+
+    def test_returns_false_for_non_existential_claim(self) -> None:
+        # A universal claim isn't an existential claim — heuristic doesn't fire.
+        premises = ["HonorRoll(John)"]
+        claim = "∀x (HonorRoll(x) → HighGPA(x))"
+        assert has_named_witness_for_existential(premises, claim) is False

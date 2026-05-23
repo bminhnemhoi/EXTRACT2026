@@ -26,7 +26,10 @@ from exact_agent.logic.llm_translator import (
 )
 from exact_agent.logic.premise_selector import select_top_k
 from exact_agent.logic.rule_parser import parse_premises
-from exact_agent.logic.z3_verifier import verify_with_z3
+from exact_agent.logic.z3_verifier import (
+    has_named_witness_for_existential,
+    verify_with_z3,
+)
 from exact_agent.schemas import PredictRequest, PredictResponse
 
 _OPTION_RE = re.compile(r"^([A-D])\.\s+(.+)$")
@@ -109,40 +112,49 @@ def _try_z3_fallback(
     if z3_result.verdict == "Unknown":
         return None
 
-    # Iter-13: SKEPTICAL EXISTENTIAL HEURISTIC (the user's Hướng 2).
-    # Empirical finding on the 81-row logic holdout: of 15 existential-flavored
-    # yes/no/unknown questions, gold distribution is {No: 11, Unknown: 1, MC: 3}
-    # — ZERO have gold=Yes for the YN/U slice. Classical Z3 inference
-    # over-predicts Yes for these because it chains universal rules across
-    # separate ∃-witness skolems, which the dataset's grader interprets as a
-    # witness-independence violation. Demoting Z3-Yes -> No for existential
-    # claims wins on the 10 over-confident Yes-when-No rows without risking
-    # any existing-Yes loss in YN/U slice.
+    # Iter-14a: WITNESS-AWARE SKEPTICAL EXISTENTIAL (upgrades Iter-13's flat
+    # demote with the user's "named witness" rule). When Z3 returns Yes for
+    # an existential YN/U claim, only KEEP the Yes if some named ground
+    # constant in the premises actually satisfies all the claim's conjuncts;
+    # otherwise demote to No (matches the dataset's witness-independence
+    # semantics AND stays robust to public-test rows that DO provide a
+    # named witness like "John is on the honor roll AND eligible").
+    #
     # Scope guards:
     #   (1) claim_fol must start with ∃ / Exists (existential claim)
-    #   (2) surface answer must be Yes/No/Unknown (YN/U question, not MC —
-    #       MC has distinct gold distribution: 2 A + 1 B for existential MC,
-    #       different shape, must not be demoted to "No")
+    #   (2) surface answer must be Yes/No/Unknown (YN/U; NOT multiple-choice
+    #       which has distinct gold distribution).
     surface_is_yn = surface.answer in {"Yes", "No", "Unknown"}
     if (
         z3_result.verdict == "Yes"
         and surface_is_yn
         and _claim_is_existential(claim_fol)
     ):
-        trace_sink.append(
-            "Iter-13 skeptical existential: Z3 said Yes via universal-chain "
-            "but dataset semantics demand a directly-witnessed conjunction; "
-            "demoting to No."
+        named_witness = has_named_witness_for_existential(
+            list(fol_premises), claim_fol,
         )
-        return VerifierResult(
-            answer="No",
-            supports=z3_result.supports,
-            rationale=(
-                "Z3 entails via universal chain but no premise directly "
-                "witnesses the existential conjunction — applying "
-                "witness-independence heuristic."
-            ),
-            confidence=0.75,
+        if not named_witness:
+            trace_sink.append(
+                "Iter-14a witness-aware: Z3 said Yes via universal-chain over "
+                "anonymous existentials, but NO named ground constant in the "
+                "premises satisfies the claim's full conjunction; demoting to No."
+            )
+            return VerifierResult(
+                answer="No",
+                supports=z3_result.supports,
+                rationale=(
+                    "Z3 entails via universal chain but no premise directly "
+                    "witnesses the existential conjunction with a named "
+                    "constant — applying witness-independence heuristic."
+                ),
+                confidence=0.75,
+            )
+        # Named witness exists -> keep the Yes (this is what differentiates
+        # v2 from Iter-13's flat demote; robust to public-test rows where a
+        # premise explicitly establishes the conjunction for a named entity).
+        trace_sink.append(
+            "Iter-14a witness-aware: Z3 said Yes AND a named ground constant "
+            "in the premises satisfies the claim's full conjunction; keeping Yes."
         )
 
     return VerifierResult(

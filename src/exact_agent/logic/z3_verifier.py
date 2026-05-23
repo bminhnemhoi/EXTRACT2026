@@ -384,3 +384,94 @@ def verify_with_z3(
         parsed_premises=len(parsed_items),
         skipped_premises=len(skipped_idx),
     )
+
+
+def has_named_witness_for_existential(
+    premises_fol: list[str],
+    claim_fol: str,
+    *,
+    timeout_ms: int = 2000,
+) -> bool:
+    """Iter-14a: check whether the EXISTENTIAL claim has a NAMED witness.
+
+    For ``∃x (P1(x) ∧ P2(x) ∧ ... ∧ Pn(x))``, returns True iff there is
+    some named ground constant ``c`` mentioned in the premises such that
+    ``premises ⊨ P1(c) ∧ P2(c) ∧ ... ∧ Pn(c)``. (Named = appears as a
+    non-variable argument in some premise.)
+
+    Returns False when:
+      * the claim doesn't parse as an Existential
+      * no named constants exist in premises
+      * Z3 can't verify the conjunction for any single constant
+
+    This is the "witness-aware" upgrade to Iter-13's flat-demote: an
+    existential claim is allowed to stay Yes only when there's a CONCRETE
+    named entity satisfying all its conjuncts, matching the user's
+    "không gộp hai 'có tồn tại' thành cùng một người, trừ khi đề cho
+    một nhân vật cụ thể" rule. Robust to public-test rows where a premise
+    explicitly establishes a witness (``John has P, John has Q``).
+    """
+    parsed_claim = parse_fol(claim_fol, premise_id="QUERY")
+    if not isinstance(parsed_claim, Existential):
+        return False
+    body = parsed_claim.body
+    if not body:
+        return False
+    # Only handle the single-bound-variable case (matches dataset shape).
+    if len(parsed_claim.quantified_vars) != 1:
+        return False
+    bound_var = parsed_claim.quantified_vars[0]
+
+    parsed_items, _parsed_idx, _skipped_idx = _parse_premises(premises_fol)
+    Entity, predicates, cmp_funcs, constants_map = _build_environment(
+        parsed_items, extras=[parsed_claim]
+    )
+
+    if not constants_map:
+        return False  # nothing named to bind the witness to
+
+    def _encode(item: Atom | Comparison | Rule | Existential) -> z3.BoolRef:
+        if isinstance(item, Rule):
+            return _rule_to_z3(
+                item, Entity=Entity, predicates=predicates,
+                cmp_funcs=cmp_funcs, constants_map=constants_map,
+            )
+        if isinstance(item, Existential):
+            return _existential_to_z3(
+                item, Entity=Entity, predicates=predicates,
+                cmp_funcs=cmp_funcs, constants_map=constants_map,
+            )
+        return _lit_to_z3(
+            item, Entity=Entity, predicates=predicates,
+            cmp_funcs=cmp_funcs, constants_map=constants_map,
+        )
+
+    def _substitute_atom_with_const(atom, const_name: str):
+        """Rebuild the atom with bound_var positions filled by const_name."""
+        if isinstance(atom, Comparison):
+            new_args = tuple(const_name if a == bound_var else a for a in atom.args)
+            return Comparison(
+                func=atom.func, args=new_args, op=atom.op, value=atom.value,
+            )
+        new_args = tuple(const_name if a == bound_var else a for a in atom.args)
+        return Atom(predicate=atom.predicate, args=new_args, polarity=atom.polarity)
+
+    for const_name in constants_map:
+        substituted_lits = [_substitute_atom_with_const(a, const_name) for a in body]
+        encoded_lits = [
+            _lit_to_z3(
+                lit, Entity=Entity, predicates=predicates,
+                cmp_funcs=cmp_funcs, constants_map=constants_map,
+            )
+            for lit in substituted_lits
+        ]
+        conjunction = encoded_lits[0] if len(encoded_lits) == 1 else z3.And(*encoded_lits)
+        # Does premises entail this CONCRETE conjunction for ``const_name``?
+        solver = z3.Solver()
+        solver.set("timeout", timeout_ms)
+        for item in parsed_items:
+            solver.add(_encode(item))
+        solver.add(z3.Not(conjunction))
+        if solver.check() == z3.unsat:
+            return True  # const_name is a verified named witness
+    return False
