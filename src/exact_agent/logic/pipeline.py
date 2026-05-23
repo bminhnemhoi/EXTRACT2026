@@ -21,7 +21,10 @@ from exact_agent.logic.answer_verifier import (
 from exact_agent.logic.explanation import render_explanation
 from exact_agent.logic.forward_chainer import forward_chain
 from exact_agent.logic.llm_translator import (
+    _PRED_IN_LINE_RE,
     LLMTranslationError,
+    _collect_predicate_vocab,
+    _question_expected_predicates,
     translate_question_to_fol_with_verify,
 )
 from exact_agent.logic.premise_selector import select_top_k
@@ -59,7 +62,7 @@ def _extract_choices(question: str) -> dict[str, str] | None:
     return choices or None
 
 
-def _try_z3_fallback(
+def _try_z3_fallback(  # noqa: PLR0911 (witness + qualifier guards add returns)
     payload: PredictRequest,
     surface: VerifierResult,
     llm: LLMClient | None,
@@ -156,6 +159,43 @@ def _try_z3_fallback(
             "Iter-14a witness-aware: Z3 said Yes AND a named ground constant "
             "in the premises satisfies the claim's full conjunction; keeping Yes."
         )
+
+    # Iter-14b: POST-Z3 QUALIFIER HARD GUARD (defense-in-depth on top of the
+    # translator-level qualifier check from Iter-12). Even if the translator
+    # check passed, re-verify here that the claim FOL Z3 used contains every
+    # qualifier predicate the question explicitly mentions. If a qualifier
+    # was silently dropped, Z3's verdict was computed against a strictly
+    # weaker claim → demote Yes to Unknown ("translation incomplete; cannot
+    # trust Z3's verdict on a partial claim").
+    #
+    # Scope:
+    #   - Only fires on YN/U questions (MC has its own per-option path).
+    #   - Only fires when the question implies at least one expected
+    #     qualifier predicate (no expectation -> no check).
+    #   - Only fires when Z3's verdict is Yes (No / Unknown stay as-is).
+    if z3_result.verdict == "Yes" and surface_is_yn:
+        vocab = _collect_predicate_vocab(list(fol_premises))
+        expected_quals = _question_expected_predicates(payload.question, vocab)
+        if expected_quals:
+            claim_preds = set(_PRED_IN_LINE_RE.findall(claim_fol))
+            missing_quals = expected_quals - claim_preds
+            if missing_quals:
+                trace_sink.append(
+                    f"Iter-14b qualifier hard guard: claim FOL is missing "
+                    f"qualifier predicate(s) {sorted(missing_quals)} that the "
+                    "question explicitly mentions; translation is incomplete "
+                    "so Z3's verdict cannot be trusted; demoting Yes -> Unknown."
+                )
+                return VerifierResult(
+                    answer="Unknown",
+                    supports=z3_result.supports,
+                    rationale=(
+                        f"Translation dropped qualifier predicate(s) "
+                        f"{sorted(missing_quals)}; claim sent to Z3 was strictly "
+                        "weaker than the question. Abstaining."
+                    ),
+                    confidence=0.4,
+                )
 
     return VerifierResult(
         answer=z3_result.verdict,
