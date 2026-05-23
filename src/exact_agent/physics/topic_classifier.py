@@ -328,6 +328,52 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
         ("perpendicular bisector",),
         "coulomb_force_perp_bisector",
     ),
+    # Iter-16a (Day-29): LD053-style "AC = BC = r, q1 = -q2" field-at-apex
+    # geometry. Equivalent to perpendicular-bisector with |q1|=|q2|, but
+    # questions never spell out "perpendicular bisector" so the rule above
+    # never fired. Parameterised in r so extractor doesn't need to compute
+    # the perp distance l from Pythagoras. Guarded with opposite-sign
+    # check so a same-sign isoceles question (LD052) does NOT route here
+    # — that one is intentionally left to a future Iter-16c general
+    # isoceles formula. Field-asked guard is applied by _keyword_match.
+    (
+        ("ac = bc", "ac=bc"),
+        "electric_field_two_opposite_sources_isoceles_apex",
+        "opposite_sign_two_charges",
+    ),
+    # Iter-16a (Day-29): LD090 equilateral with q1=-q2 is the special case
+    # r=d of the rule above. Guard rule fires before the same-sign
+    # equilateral 16b rule so opposite-sign equilaterals are dispatched
+    # to the isoceles-opposite formula, not the same-sign vector-sum one.
+    (
+        ("equilateral triangle",),
+        "electric_field_two_opposite_sources_isoceles_apex",
+        "opposite_sign_two_charges",
+    ),
+    # Iter-16b (Day-29): DT051, LD319, LD392 — equilateral with same-sign
+    # charges at two (or three) vertices, field at the remaining/queried
+    # vertex. Vectors from the two source charges meet at 60° → √3·k|q|/a².
+    # MUST precede the coulomb_force_equilateral_three_identical rule
+    # below; F2 guard already skips that one on field-asked, but explicit
+    # ordering keeps the trace reason "electric_field_equilateral_*" clean.
+    # Opposite-sign equilateral case is captured above and won't reach here.
+    (
+        ("equilateral triangle",),
+        "electric_field_equilateral_three_identical",
+    ),
+    # Iter-16d (Day-29): LD335 — three identical charges at vertices of
+    # an isoceles right triangle, field at the right-angle vertex. The
+    # two source vectors are perpendicular → √2·k|q|/r². Field-asked
+    # guard applied. Distinct from coulomb_force_two_sources_right_triangle
+    # (which fires on force questions and takes general q1, q2).
+    (
+        (
+            "isosceles right triangle",
+            "right-angle vertex",
+            "right angle vertex",
+        ),
+        "electric_field_right_angle_two_identical",
+    ),
     # Iter-2 (Day-25 LD026): q3 on segment between OPPOSITE-sign q1, q2
     # (CA and CB explicit). Forces add. MUST precede LD025 same-sign rule
     # below because "ca = 4 cm" / "cb = 2 cm" is the discriminator.
@@ -653,6 +699,18 @@ _TARGET_WORDS: dict[str, frozenset[str]] = {
     "voltage_inductor_at_resonance": frozenset({"voltage", "inductor", "ul"}),
     "lc_partition_electric_energy": frozenset({"electric", "energy", "joule"}),
     "electric_field_point_charge": frozenset({"intensity", "strength", "magnitude"}),
+    # Iter-16 (Day-29) target words: require the question to actually be
+    # asking for an electric field before letting the symbol fallback
+    # commit. q + d/a/r symbols are otherwise too generic.
+    "electric_field_two_opposite_sources_isoceles_apex": frozenset(
+        {"electric field", "field intensity", "field strength", "v/m"}
+    ),
+    "electric_field_equilateral_three_identical": frozenset(
+        {"electric field", "field intensity", "field strength", "v/m"}
+    ),
+    "electric_field_right_angle_two_identical": frozenset(
+        {"electric field", "field intensity", "field strength", "v/m"}
+    ),
     "ohm_law_voltage": frozenset({"voltage", "volt"}),
     "power_voltage_current": frozenset({"power", "watt"}),
     "power_i2r": frozenset({"power", "watt", "dissipat", "heat"}),
@@ -700,6 +758,11 @@ _FIELD_FORMULAS: frozenset[str] = frozenset({
     "electric_field_two_opposite_charges_midpoint",
     "electric_field_perp_bisector_two_opposite",
     "electric_field_from_force",
+    # Iter-16 (Day-29) — three new vector-composition field formulas.
+    # Each outputs V/m; the inverse guard rejects them on force-asked.
+    "electric_field_two_opposite_sources_isoceles_apex",
+    "electric_field_equilateral_three_identical",
+    "electric_field_right_angle_two_identical",
 })
 _FORCE_ASK_TOKENS: tuple[str, ...] = (
     "net force",
@@ -758,6 +821,38 @@ def _extract_question_sentence(question_lower: str) -> str:
     if imperatives:
         return imperatives[-1]
     return question_lower
+
+
+# Iter-16a (Day-29): detect when the question describes two charges of
+# opposite sign and equal magnitude (q1 = -q2 patterns). Used as a per-rule
+# routing guard so an "equilateral triangle" / "AC = BC" question routes to
+# the perp-bisector-special-case formula only when the charge signs justify
+# it. Detection is text-only (no extractor coupling) so the classifier stays
+# pure-function on question text.
+_OPPOSITE_SIGN_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # "q1 = -q2" / "q_1 = -q_2" / "q2 = -q1" — chained-equality form
+    re.compile(r"q_?1\s*=\s*[−\-]\s*q_?2"),
+    re.compile(r"q_?2\s*=\s*[−\-]\s*q_?1"),
+    # "q1 = +X ... q2 = -X" / "q1 = +X mC and q2 = -Y mC" — two-statement form
+    re.compile(r"q_?2\s*=\s*[−\-]\s*\d"),
+    re.compile(r"and\s+q_?2\s*=\s*[−\-]"),
+    re.compile(r",\s*q_?2\s*=\s*[−\-]"),
+    # Inverse word order: q1 negative, q2 positive
+    re.compile(r"q_?1\s*=\s*[−\-]\s*\d"),
+    re.compile(r"and\s+q_?1\s*=\s*[−\-]"),
+)
+
+
+def _has_opposite_sign_two_charges(question_lower: str) -> bool:
+    return any(p.search(question_lower) for p in _OPPOSITE_SIGN_PATTERNS)
+
+
+# Iter-16a: per-rule guard table. A rule in _KEYWORD_RULES may name a guard
+# string; the rule only fires when the named guard returns True. Keeps the
+# rule table flat and the guard logic centralised.
+_RULE_GUARDS: dict[str, "callable[[str], bool]"] = {
+    "opposite_sign_two_charges": _has_opposite_sign_two_charges,
+}
 
 
 def _is_field_asking(question_lower: str) -> bool:
@@ -903,7 +998,13 @@ def _keyword_match(question: str) -> tuple[str, str] | None:
     lower = question.lower()
     field_asked = _is_field_asking(lower)
     force_asked = _is_force_asking(lower)
-    for keywords, formula_id in _KEYWORD_RULES:
+    for rule in _KEYWORD_RULES:
+        # Iter-16a: support optional per-rule guard as a 3rd tuple element.
+        if len(rule) == 3:
+            keywords, formula_id, guard_name = rule
+        else:
+            keywords, formula_id = rule
+            guard_name = None
         for kw in keywords:
             if kw in lower:
                 # F2 guard: never let a "force" formula win when the
@@ -916,6 +1017,11 @@ def _keyword_match(question: str) -> tuple[str, str] | None:
                 # coulomb_force_perp_bisector, not the field variant.
                 if force_asked and formula_id in _FIELD_FORMULAS:
                     continue
+                # Iter-16a: per-rule guard (e.g. opposite-sign check).
+                if guard_name is not None:
+                    guard_fn = _RULE_GUARDS.get(guard_name)
+                    if guard_fn is None or not guard_fn(lower):
+                        continue
                 return formula_id, f"keyword '{kw}'"
     return None
 
