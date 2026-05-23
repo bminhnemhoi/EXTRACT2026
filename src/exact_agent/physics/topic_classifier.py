@@ -212,6 +212,14 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
             "calculate the potential difference (unit: v)",
             "calculate the voltage (unit: v)",
             "potential difference (unit: v) between",
+            # Iter-17c (Day-29) — NL103: "Calculate the voltage across its
+            # plates". W and C given. Asks for V → voltage_from_energy_capacitance.
+            # Narrow so it doesn't steal energy-asking questions (those would
+            # also be dim-rejected since output is volt).
+            "calculate the voltage across its plates",
+            "what is the voltage across its plates",
+            "find the voltage across its plates",
+            "voltage across the plates",
         ),
         "voltage_from_energy_capacitance",
     ),
@@ -374,6 +382,35 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
         ),
         "electric_field_right_angle_two_identical",
     ),
+    # Iter-17f (Day-29) — LD362 (perpendicular), LD367 (60°): two source
+    # charges of DIFFERENT magnitudes, each equidistant from point M,
+    # with their source-field vectors at M forming a given angle theta.
+    # Distinct from 16d (which requires identical charges + right angle
+    # in a 3-charge triangle configuration). Phrase variants from the
+    # dataset: "fields they produce at M are perpendicular" / "form an
+    # angle of 60°" / "form a 90° angle". F2 / dim guards inherited.
+    (
+        (
+            "are perpendicular to each other",
+            "fields they produce at m are perpendicular",
+            "form an angle of",
+            "form a 90° angle",
+            "form a 90 degree angle",
+            "fields they produce at m form",
+        ),
+        "electric_field_two_sources_at_angle",
+    ),
+    # Iter-17e (Day-29) — THCB094/114/133 cluster DEFERRED: requires a
+    # solver-side change so the output_unit passes the input unit through
+    # (gold has g/V/°C; a single dimensionless formula can't satisfy
+    # unit_match). Routing rule kept commented as a placeholder; un-comment
+    # alongside the input-unit-passthrough plumbing in a later iter.
+    # (
+    #     ("calculate the average mass and the average absolute error",
+    #      "calculate the average voltage and the average absolute error",
+    #      "calculate the average temperature and the average absolute error"),
+    #     "mean_three_measurements",
+    # ),
     # Iter-2 (Day-25 LD026): q3 on segment between OPPOSITE-sign q1, q2
     # (CA and CB explicit). Forces add. MUST precede LD025 same-sign rule
     # below because "ca = 4 cm" / "cb = 2 cm" is the discriminator.
@@ -451,12 +488,19 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     # shape ("two charges q1 = -q2 placed at A, B... field at midpoint
     # / field at midpoint of AB"). Must precede the single-charge
     # electric_field_point_charge rule below.
+    # Iter-17d (Day-29): broadened to catch LD067 phrasing where the
+    # "electric field" and "at the midpoint" tokens are separated by a
+    # prepositional clause ("electric field vector produced by ... at
+    # the midpoint of the line segment"). Earlier triggers required
+    # adjacent "field at the midpoint" substring, which LD067 violates.
     (
         (
             "field at the midpoint",
             "field strength at the midpoint",
             "electric field at the midpoint",
             "field at midpoint of",
+            "at the midpoint of the line segment",
+            "at the midpoint of the segment",
         ),
         "electric_field_two_opposite_charges_midpoint",
     ),
@@ -515,6 +559,23 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
             "calculate the inductance",
         ),
         "inductance_from_inductor_energy",
+    ),
+    # Iter-17a (Day-29) — NL040: "An inductor has L=X H, current I=Y A.
+    # Calculate the magnetic field energy." Direct W = 0.5·L·I². Must
+    # precede the current_from_inductor_energy rule below which keys on
+    # the same "magnetic energy" tokens. Trigger requires asking-for-
+    # energy phrasing so the inverse problems (find current / find
+    # inductance) still route correctly.
+    (
+        (
+            "calculate the magnetic field energy",
+            "calculate the magnetic energy",
+            "what is the magnetic field energy",
+            "find the magnetic field energy",
+            "determine the magnetic field energy",
+            "calculate w (",  # "calculate W (J)" style
+        ),
+        "inductor_magnetic_energy",
     ),
     # Iter-1 (Day-25 NL007): "magnetic field energy ... calculate the current"
     # — inductor energy → current via I = sqrt(2W/L). Formula already exists.
@@ -763,6 +824,10 @@ _FIELD_FORMULAS: frozenset[str] = frozenset({
     "electric_field_two_opposite_sources_isoceles_apex",
     "electric_field_equilateral_three_identical",
     "electric_field_right_angle_two_identical",
+    # Iter-17f (Day-29) — general-angle 2-source field. Must be in
+    # _FIELD_FORMULAS so a force-asking "form an angle of 60°" question
+    # is rejected at the keyword stage instead of stealing the route.
+    "electric_field_two_sources_at_angle",
 })
 _FORCE_ASK_TOKENS: tuple[str, ...] = (
     "net force",
@@ -790,6 +855,16 @@ _FIELD_ASK_TOKENS: tuple[str, ...] = (
     "(v/m)",
     "volt/meter",
     "volts per meter",
+    # Iter-17d (Day-29): LD067 phrases the ask as "electric field
+    # vector produced by ..." — neither "field strength" nor "field at"
+    # appears, so the F2 guard wasn't rejecting force formulas. Adding
+    # "electric field vector" and "electric field produced" (with the
+    # variant via "field e produced") closes that loophole.
+    "electric field vector",
+    "electric field e produced",
+    "electric field produced by",
+    "resultant electric field",
+    "total electric field",
 )
 
 
@@ -924,7 +999,17 @@ _INTENT_DIMENSION_HINTS: tuple[tuple[tuple[str, ...], str], ...] = (
       "what is the electric field energy",
       "find the electric field energy",
       "calculate the stored energy",
-      "energy stored in"), "joule"),
+      "energy stored in",
+      # Iter-17a (Day-29): must beat the shorter "calculate the magnetic
+      # field" -> tesla hint via longest-match. Without these phrases the
+      # dim guard rejected inductor_magnetic_energy for NL040 even though
+      # the keyword router selected it correctly.
+      "calculate the magnetic field energy",
+      "what is the magnetic field energy",
+      "find the magnetic field energy",
+      "determine the magnetic field energy",
+      "calculate the magnetic energy",
+      "what is the magnetic energy"), "joule"),
     (("calculate the current", "find the current",
       "what is the current", "determine the current",
       "calculate the rms current"), "ampere"),
