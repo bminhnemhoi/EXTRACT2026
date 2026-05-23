@@ -40,6 +40,51 @@ class ClassificationResult:
 # variants beat generic "electric field" because real questions like
 # "energy stored in the electric field" must route to capacitor_energy.
 _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
+    # === Iter-19 (Day-29) — placed at the TOP because the existing rules
+    # below match the same keywords (e.g. "voltage across the capacitor",
+    # "power factor", "ac = bc") and would steal the route via first-match.
+    # Each Iter-19 rule is guarded so it only fires on its narrow target
+    # pattern; on miss, the existing rule wins naturally.
+
+    # 19a — CH143/144/145: series RLC AT RESONANCE, U_RC given, asks U_C.
+    # Guard requires "at resonance" + R-C or C-L section phrasing AND
+    # the question to be asking about the capacitor voltage.
+    (
+        (
+            "rms voltage across the capacitor",
+            "voltage across the capacitor c",
+            "rms voltage across the c",
+        ),
+        "voltage_capacitor_from_urc_resonance",
+        "rlc_resonance_with_urc",
+    ),
+    # 19e — CH247/249: "LCω² = 1 ... power factor" -> cos(φ) = 1.
+    (
+        (
+            "lcω2 = 1",
+            "lcω² = 1",
+            "lc*ω2 = 1",
+            "lcw2 = 1",
+            "satisfies the condition lc",
+            "the condition lc",
+        ),
+        "power_factor_at_resonance_constant",
+        "asks_power_factor",
+    ),
+    # 19c — THCB094/114/133: per-unit mean formulas.
+    (("calculate the average mass",), "mean_three_measurements_mass"),
+    (("calculate the average voltage",), "mean_three_measurements_voltage"),
+    (("calculate the average temperature",), "mean_three_measurements_temperature"),
+    # 19b — LD052: same-sign isoceles general (NOT equilateral, NOT opposite).
+    # MUST precede the existing "ac = bc" -> coulomb_force_two_opposite_*
+    # rule (Iter-15) and "ac = bc" -> 16a opposite-isoceles rule.
+    (
+        ("ac = bc", "ac=bc"),
+        "electric_field_isoceles_two_same_sign_apex",
+        "same_sign_isoceles_not_equilateral",
+    ),
+    # === end Iter-19 ===
+
     # --- Day-11 RLC-resonance / error / inductor closed forms. Highly
     # specific phrases; placed first so they can't be pre-empted. Order
     # inside this block matters: 'pure resistance' (resistance_at_resonance)
@@ -607,10 +652,18 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
         "inductance_for_resonance",
     ),
     # F1 new — inductance from inductor magnetic energy + current. NL010.
+    # Iter-19f (Day-29) — added "what is its inductance" / "find its
+    # inductance" so NL334 ("What is its inductance (H)?") stops being
+    # mis-extracted by current_from_inductor_energy (which expects L).
     (
         (
             "calculate its inductance",
             "calculate the inductance",
+            "what is its inductance",
+            "find its inductance",
+            "determine its inductance",
+            "what is the inductance",
+            "find the inductance",
         ),
         "inductance_from_inductor_energy",
     ),
@@ -628,6 +681,16 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
             "ω, what is i",
             "ohms, what is i",
             ", what is i?",
+            # Iter-19d (Day-29) — CH160: "operating at resonance" +
+            # "calculate the maximum effective current Imax". At
+            # resonance Z = R, so I = U/R. Dim guard ensures power-asking
+            # resonance questions still route to power_at_resonance.
+            "calculate the maximum effective current",
+            "calculate the maximum current",
+            "find the maximum effective current",
+            "calculate the rms current at resonance",
+            "calculate imax",
+            "find imax",
         ),
         "ohm_law_current",
     ),
@@ -1049,6 +1112,40 @@ def _has_dielectric_constant(question_lower: str) -> bool:
     return any(p.search(question_lower) for p in _DIELECTRIC_PATTERNS)
 
 
+# Iter-19a (Day-29): the U_C-from-U_RC formula fires only when the
+# question describes a series RLC AT RESONANCE plus a U_RC voltage.
+def _has_rlc_resonance_with_urc(question_lower: str) -> bool:
+    has_resonance = ("at resonance" in question_lower
+                     or "in resonance" in question_lower
+                     or "currently in resonance" in question_lower)
+    has_urc_phrasing = ("r-c" in question_lower
+                        or "rc combination" in question_lower
+                        or "rc section" in question_lower
+                        or "r and c" in question_lower)
+    has_both_sections = "c-l" in question_lower or "cl section" in question_lower
+    return has_resonance and (has_urc_phrasing or has_both_sections)
+
+
+# Iter-19e (Day-29): the constant-cos(φ)=1 formula must only fire when
+# the question actually asks for the power factor.
+def _asks_power_factor(question_lower: str) -> bool:
+    return ("power factor" in question_lower
+            or "cos(φ)" in question_lower
+            or "cosφ" in question_lower
+            or "cos φ" in question_lower)
+
+
+# Iter-19b (Day-29): same-sign isoceles general — must NOT fire on
+# equilateral (Iter-16b handles that case better) and NOT on opposite-
+# sign (Iter-16a handles that).
+def _is_same_sign_isoceles_not_equilateral(question_lower: str) -> bool:
+    if _has_opposite_sign_two_charges(question_lower):
+        return False
+    if "equilateral" in question_lower:
+        return False
+    return _has_same_sign_two_charges(question_lower)
+
+
 # Iter-16a: per-rule guard table. A rule in _KEYWORD_RULES may name a guard
 # string; the rule only fires when the named guard returns True. Keeps the
 # rule table flat and the guard logic centralised.
@@ -1056,6 +1153,9 @@ _RULE_GUARDS: dict[str, "callable[[str], bool]"] = {
     "opposite_sign_two_charges": _has_opposite_sign_two_charges,
     "same_sign_two_charges": _has_same_sign_two_charges,
     "has_dielectric_constant": _has_dielectric_constant,
+    "rlc_resonance_with_urc": _has_rlc_resonance_with_urc,
+    "asks_power_factor": _asks_power_factor,
+    "same_sign_isoceles_not_equilateral": _is_same_sign_isoceles_not_equilateral,
 }
 
 
