@@ -39,6 +39,47 @@ _UNICODE_MINUS_MAP = str.maketrans({
 # rewrites to ``10^-N`` so the existing extractor catches it.
 _BARE_TEN_NEG_EXPONENT_RE = re.compile(r"(?<=[\s=])10-(\d+)(?=\s)")
 
+# Iter-19g (Day-29): √-literal handling — the dataset writes RMS-vs-peak
+# voltages as "100√2 V" / "200√3 V" etc. The extractor's _NUMBER regex
+# stops at the first non-digit, returning 100, and the √2 factor is lost
+# (NL361 voltage 100√2 → 141.42 V was being read as 100 V).
+#
+# Pre-resolve the √ to a numeric multiplier before the extractor runs.
+# Patterns covered (using Unicode U+221A √):
+#   "100√2"    -> "141.42135624"
+#   "100*√2"   -> "141.42135624"
+#   "100 √2"   -> "141.42135624"
+#   "√2"       -> "1.41421356"
+#   "100/√3"   -> "57.7350269"
+import math as _math
+_SQRT_VALUES = {
+    2: _math.sqrt(2),
+    3: _math.sqrt(3),
+    5: _math.sqrt(5),
+    6: _math.sqrt(6),
+    7: _math.sqrt(7),
+    10: _math.sqrt(10),
+}
+_SQRT_DIV_RE = re.compile(r"(\d+(?:\.\d+)?)\s*/\s*√\s*(\d+)")
+_SQRT_MUL_RE = re.compile(r"(\d+(?:\.\d+)?)\s*[\*·]?\s*√\s*(\d+)")
+_SQRT_LEADING_RE = re.compile(r"(?<![\d.])√\s*(\d+)")
+
+
+def _resolve_sqrt_literals(text: str) -> str:
+    def _div(m: re.Match[str]) -> str:
+        mant, n = float(m.group(1)), int(m.group(2))
+        return f"{mant / _SQRT_VALUES.get(n, _math.sqrt(n)):.6g}"
+    def _mul(m: re.Match[str]) -> str:
+        mant, n = float(m.group(1)), int(m.group(2))
+        return f"{mant * _SQRT_VALUES.get(n, _math.sqrt(n)):.6g}"
+    def _lead(m: re.Match[str]) -> str:
+        n = int(m.group(1))
+        return f"{_SQRT_VALUES.get(n, _math.sqrt(n)):.6g}"
+    text = _SQRT_DIV_RE.sub(_div, text)
+    text = _SQRT_MUL_RE.sub(_mul, text)
+    text = _SQRT_LEADING_RE.sub(_lead, text)
+    return text
+
 
 def clean(question: str) -> str:
     """Return a normalized copy of ``question`` (idempotent)."""
@@ -47,6 +88,7 @@ def clean(question: str) -> str:
     text = unicodedata.normalize("NFKC", question)
     text = text.translate(_UNICODE_MINUS_MAP)
     text = _BARE_TEN_NEG_EXPONENT_RE.sub(r"10^-\1", text)
+    text = _resolve_sqrt_literals(text)
     text = text.replace(_NBSP, " ")
     text = _WHITESPACE_RE.sub(" ", text).strip()
     return text

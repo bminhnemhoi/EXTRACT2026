@@ -211,6 +211,17 @@ def _is_dimensionless(token: str) -> bool:
     return token.strip().lower() in _DIMENSIONLESS_TOKENS
 
 
+def _strip_compound_unit(raw: str) -> str:
+    """Iter-19g (Day-29): some dataset rows pack the value-unit and the
+    error-unit into a single field with a semicolon separator
+    (e.g. ``"g; g"`` for the THCB lab questions). Take the FIRST unit
+    token so the dimensionality compare doesn't fail on the trailing
+    ``"; g"`` suffix."""
+    if ";" in raw:
+        return raw.split(";")[0].strip()
+    return raw
+
+
 def unit_match(predicted: str | None, expected: str | None) -> bool:
     """True when the two unit strings share dimensionality (V == volt, J == joule).
 
@@ -218,8 +229,8 @@ def unit_match(predicted: str | None, expected: str | None) -> bool:
     …) is treated as a match so a numerically-correct dimensionless answer
     isn't failed on a cosmetic unit-string difference.
     """
-    p_raw = (predicted or "").strip()
-    e_raw = (expected or "").strip()
+    p_raw = _strip_compound_unit((predicted or "").strip())
+    e_raw = _strip_compound_unit((expected or "").strip())
     if _is_dimensionless(p_raw) and _is_dimensionless(e_raw):
         return True
     if not p_raw or not e_raw:
