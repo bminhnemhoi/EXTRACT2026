@@ -150,6 +150,23 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
         ),
         "dielectric_constant_from_capacitance",
     ),
+    # Iter-18c (Day-29) — LD067: 2 opposite-sign charges at midpoint in
+    # a DIELECTRIC medium. MUST precede parallel_plate_capacitance_
+    # dielectric (which matches "dielectric constant" generically) and
+    # the regular midpoint field rule (which doesn't apply 1/ε scaling).
+    # Guard requires both midpoint phrasing AND dielectric language; the
+    # final classifier dim guard further requires the question to be
+    # field-asking (V/m output, not farad).
+    (
+        (
+            "midpoint of the line segment",
+            "midpoint of the segment",
+            "midpoint of ab",
+            "at the midpoint",
+        ),
+        "electric_field_two_opposite_charges_midpoint_dielectric",
+        "has_dielectric_constant",
+    ),
     # Iter-4 Fix C (TD025/043/079/191): "An air-filled parallel-plate
     # capacitor HAS A CAPACITANCE OF X pF and is charged to Y V. Calculate
     # the electric field energy" must route to capacitor_energy (uses the
@@ -322,6 +339,31 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
         ("at the midpoint", "midpoint of the line segment", "midpoint o"),
         "coulomb_force_at_midpoint",
     ),
+    # Iter-18c (Day-29) — LD067: midpoint field of 2 OPPOSITE-sign charges
+    # in a DIELECTRIC medium. MUST precede the parallel_plate_capacitance_
+    # dielectric rule above and the regular midpoint rule below — neither
+    # of those applies the 1/ε scaling. Triggered when the question both
+    # describes a midpoint geometry and contains dielectric language.
+    (
+        (
+            "midpoint of the line segment",
+            "midpoint of the segment",
+            "midpoint of ab",
+            "field at the midpoint",
+        ),
+        "electric_field_two_opposite_charges_midpoint_dielectric",
+        "has_dielectric_constant",
+    ),
+    # Iter-18d (Day-29) — LD081 / LD387: SAME-sign perpendicular bisector
+    # field. The existing electric_field_perp_bisector_two_opposite formula
+    # is OPPOSITE-sign only; same-sign needs the (|q|±|q|) terms swapped.
+    # Routing fires when "perpendicular bisector" + signs NOT opposite
+    # (guarded). MUST precede the opposite-sign rule directly below.
+    (
+        ("perpendicular bisector",),
+        "electric_field_perp_bisector_two_same_sign",
+        "same_sign_two_charges",
+    ),
     # Iter-4 Fix D: perpendicular-bisector 2-opposite-charge FIELD problems
     # (LD065/099/100/340). MUST precede the force perp-bisector rule below
     # because field_asked makes the force rule skip, leaving symbol-fallback
@@ -381,6 +423,18 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
             "right angle vertex",
         ),
         "electric_field_right_angle_two_identical",
+    ),
+    # Iter-18e (Day-29) — LD243: force-output mirror of Iter-16d. Three
+    # identical charges at vertices of an isoceles right triangle; force
+    # on the right-angle-vertex charge from the other two. F2 guard
+    # ensures field-asked questions still hit the Iter-16d field formula.
+    (
+        (
+            "isosceles right triangle",
+            "right-angle vertex",
+            "right angle vertex",
+        ),
+        "coulomb_force_right_angle_two_identical",
     ),
     # Iter-17f (Day-29) — LD362 (perpendicular), LD367 (60°): two source
     # charges of DIFFERENT magnitudes, each equidistant from point M,
@@ -559,6 +613,23 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
             "calculate the inductance",
         ),
         "inductance_from_inductor_energy",
+    ),
+    # Iter-18f (Day-29) — CH360: "At resonance with U = X V, R = Y Ω,
+    # what is I?". At resonance Z = R, so I = U/R (Ohm's law). Without
+    # this rule the symbol fallback picked power_at_resonance (U + R
+    # match its inputs + "resonan" target word) and returned 400 W
+    # instead of 4 A. Triggers are narrow ("what is i" + "?" anchor) so
+    # power-asking resonance questions still route to power_at_resonance.
+    (
+        (
+            "at resonance, what is i",
+            "at resonance, find i",
+            "at resonance, calculate i",
+            "ω, what is i",
+            "ohms, what is i",
+            ", what is i?",
+        ),
+        "ohm_law_current",
     ),
     # Iter-17a (Day-29) — NL040: "An inductor has L=X H, current I=Y A.
     # Calculate the magnetic field energy." Direct W = 0.5·L·I². Must
@@ -810,6 +881,8 @@ _FORCE_FORMULAS: frozenset[str] = frozenset({
     "coulomb_force_two_sources_right_triangle_apex",
     "coulomb_force_on_charge_between_two_identical",
     "coulomb_force_collinear_opposite_signs",
+    # Iter-18e (Day-29): force-output mirror of Iter-16d field formula.
+    "coulomb_force_right_angle_two_identical",
 })
 # Iter-4 Fix D — the inverse guard. Symmetric to _FORCE_FORMULAS so a
 # "calculate the net force" question doesn't trip a field-output formula
@@ -828,6 +901,9 @@ _FIELD_FORMULAS: frozenset[str] = frozenset({
     # _FIELD_FORMULAS so a force-asking "form an angle of 60°" question
     # is rejected at the keyword stage instead of stealing the route.
     "electric_field_two_sources_at_angle",
+    # Iter-18c/d (Day-29) — dielectric midpoint + same-sign perp-bisector.
+    "electric_field_two_opposite_charges_midpoint_dielectric",
+    "electric_field_perp_bisector_two_same_sign",
 })
 _FORCE_ASK_TOKENS: tuple[str, ...] = (
     "net force",
@@ -922,11 +998,64 @@ def _has_opposite_sign_two_charges(question_lower: str) -> bool:
     return any(p.search(question_lower) for p in _OPPOSITE_SIGN_PATTERNS)
 
 
+# Iter-18d (Day-29): same-sign detector — q1 = q2 chained equality, or
+# two explicit identical positive charges. Used as a per-rule guard so
+# the new same-sign perp-bisector formula fires only when the signs
+# justify it (and the opposite-sign formula stays the default).
+_SAME_SIGN_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"q_?1\s*=\s*q_?2"),
+    re.compile(r"q_?a\s*=\s*q_?b"),
+    re.compile(r"qa\s+and\s+qb,\s*both\s+equal"),
+    # "three identical charges"
+    re.compile(r"three\s+identical\s+charges"),
+    re.compile(r"3\s+identical\s+charges"),
+    re.compile(r"both\s+equal\s+to"),
+)
+
+
+def _has_same_sign_two_charges(question_lower: str) -> bool:
+    """Permissive same-sign detector: True when opposite-sign is NOT
+    detected AND there is at least a 2-charge problem (q1 + q2 mentioned).
+    Used as a per-rule guard alongside ``perpendicular bisector`` so the
+    same-sign formula wins when signs aren't explicitly opposite.
+    """
+    if _has_opposite_sign_two_charges(question_lower):
+        return False  # opposite-sign takes precedence
+    # Explicit positive markers (3 identical charges, qa=qb, etc.)
+    if any(p.search(question_lower) for p in _SAME_SIGN_PATTERNS):
+        return True
+    # Fallback: any pair of "q1 =" / "q2 =" tokens with NO negative signs
+    # in front (caught by the opposite-sign check above).
+    has_q1 = re.search(r"q_?1\s*=\s*\d", question_lower) is not None
+    has_q2 = re.search(r"q_?2\s*=\s*\d", question_lower) is not None
+    has_qa_qb = re.search(r"q_?a\s+and\s+q_?b", question_lower) is not None
+    return (has_q1 and has_q2) or has_qa_qb
+
+
+# Iter-18c (Day-29): dielectric-medium detector for the dielectric-aware
+# midpoint field formula.
+_DIELECTRIC_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"dielectric\s+constant"),
+    re.compile(r"relative\s+permittivity"),
+    re.compile(r"ε\s*=\s*\d"),
+    re.compile(r"epsilon\s*=\s*\d"),
+    re.compile(r"in\s+alcohol"),
+    re.compile(r"in\s+oil"),
+    re.compile(r"in\s+a\s+dielectric"),
+)
+
+
+def _has_dielectric_constant(question_lower: str) -> bool:
+    return any(p.search(question_lower) for p in _DIELECTRIC_PATTERNS)
+
+
 # Iter-16a: per-rule guard table. A rule in _KEYWORD_RULES may name a guard
 # string; the rule only fires when the named guard returns True. Keeps the
 # rule table flat and the guard logic centralised.
 _RULE_GUARDS: dict[str, "callable[[str], bool]"] = {
     "opposite_sign_two_charges": _has_opposite_sign_two_charges,
+    "same_sign_two_charges": _has_same_sign_two_charges,
+    "has_dielectric_constant": _has_dielectric_constant,
 }
 
 
