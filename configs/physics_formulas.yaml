@@ -671,3 +671,65 @@ formulas:
       symbol: W_C
       unit: "joule"
     expression: "W_total - W_L"
+
+  # ============================================================
+  # Iter-16 (Day-29) — 3 audit-driven electric-field vector formulas.
+  # Closes the "electric_field_point_charge numeric_mismatch" cluster
+  # (8/35 rows = 23% of numeric_mismatch bucket post-Iter-15).
+  # Each formula pre-verified <0.5% rel error on its gold rows.
+  # ============================================================
+
+  # Iter-16a — LD053, LD090: field at apex C of isoceles triangle ABC where
+  # A,B carry OPPOSITE-sign equal-magnitude charges (q1 = -q2), AC = BC = r,
+  # AB = d. By symmetry, components along AB add and perpendicular cancel.
+  # Equivalent to the (|q1|=|q2|) special case of perp_bisector_two_opposite
+  # but reparameterised in r (avoid extractor needing perpendicular distance l,
+  # which questions never state directly).
+  # Verify: LD053 q=6e-6, d=0.10, r=0.12 → 3.125e6 V/m ✓
+  #         LD090 q=4.1e-10, d=0.02, r=0.02 (equilateral) → 9.21e3 V/m ✓
+  electric_field_two_opposite_sources_isoceles_apex:
+    topic: LD
+    description: "Iter-16a: net electric field at apex C of an isoceles triangle ABC (AC=BC=r) where A,B carry opposite-sign equal-magnitude charges (q1 at A, -q1 at B) separated by AB=d. Components along AB add, perpendicular components cancel: E = k·|q|·d/r³. Equivalent to perpendicular-bisector field with |q1|=|q2|, parameterised in r so extractor needs only AC/BC."
+    inputs:
+      q: { unit: "coulomb", aliases: ["q1", "q2", "charge", "source_charge"] }
+      d: { unit: "meter",   aliases: ["AB", "separation"] }
+      r: { unit: "meter",   aliases: ["AC", "BC", "side", "equal_distance"] }
+    output:
+      symbol: E
+      unit: "volt/meter"
+    expression: "8.9875517923e9 * Abs(q) * d / r**3"
+
+  # Iter-16b — DT051, LD319, LD392: field at one vertex of an equilateral
+  # triangle due to two equal SAME-sign charges at the other two vertices
+  # (side a). The two source vectors have equal magnitude k|q|/a² and meet
+  # at 60°, so resultant = √3 · k·|q|/a².
+  # Verify: DT051 q=5e-16, a=0.08 → 1.218e-3 V/m ✓ (gold 1.22e-3)
+  #         LD319 q=2.6e-6, a=0.103 → 3.82e6 V/m ✓
+  #         LD392 q=4.71e-6, a=0.093 → 8.49e6 V/m ✓ (gold 8.48e6)
+  electric_field_equilateral_three_identical:
+    topic: LD
+    description: "Iter-16b: net electric field at one vertex of an equilateral triangle due to two equal same-sign charges q at the other two vertices (side a): E = √3·k·|q|/a². Vector sum of two equal-magnitude field vectors meeting at 60°. A charge at the field point itself contributes zero by definition."
+    inputs:
+      q: { unit: "coulomb", aliases: ["q1", "q2", "q3", "charge", "source_charge"] }
+      a: { unit: "meter",   aliases: ["side", "side_length", "distance", "d"] }
+    output:
+      symbol: E
+      unit: "volt/meter"
+    expression: "sqrt(3) * 8.9875517923e9 * Abs(q) / a**2"
+
+  # Iter-16d — LD335: field at right-angle vertex of an isoceles right
+  # triangle with three identical charges at the three vertices (legs r).
+  # The two source vectors from the acute vertices are perpendicular and
+  # equal: |E_resultant| = √2 · k·|q|/r². Charge at the field point itself
+  # contributes zero.
+  # Verify: LD335 q=1.2e-6, r=0.052 → √2·9e9·1.2e-6/0.052² = 5.65e6 V/m ✓
+  electric_field_right_angle_two_identical:
+    topic: LD
+    description: "Iter-16d: net electric field at the right-angle vertex of an isoceles right triangle with three identical same-sign charges q at the three vertices (legs of length r). The two source vectors from the acute vertices are perpendicular and equal magnitude k|q|/r², so resultant E = √2·k·|q|/r²."
+    inputs:
+      q: { unit: "coulomb", aliases: ["charge", "source_charge", "q1", "q2", "q3"] }
+      r: { unit: "meter",   aliases: ["leg", "leg_length", "side", "distance"] }
+    output:
+      symbol: E
+      unit: "volt/meter"
+    expression: "sqrt(2) * 8.9875517923e9 * Abs(q) / r**2"
