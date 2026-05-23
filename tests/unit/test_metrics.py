@@ -24,6 +24,16 @@ class TestParseNumber:
             ("1e-4", 1e-4),
             ("6×10^-8", 6e-8),
             ("6 × 10 ^ -8", 6e-8),
+            # Iter-16e (Day-29): Unicode superscripts in gold strings.
+            # The official 2026-05-15 dataset writes "8.48 × 10⁶" (super-
+            # script-6, U+2076) rather than "10^6"; parse_number used to
+            # collapse those golds to the mantissa, false-failing 6 rows.
+            ("8.48 × 10⁶", 8.48e6),
+            ("14.03 × 10⁶", 14.03e6),
+            ("1.99 × 10⁻³", 1.99e-3),
+            ("9.42×10⁻³", 9.42e-3),
+            ("2.4×10⁻³", 2.4e-3),
+            ("1.01×10⁻²", 1.01e-2),
             (0.045, 0.045),
             ("", None),
             ("hello", None),

@@ -35,6 +35,16 @@ from exact_agent.physics.unit_converter import (
 
 _NUMBER_RE = re.compile(r"[-+]?\d+(?:\.\d+)?(?:\s*[*x×]\s*10\s*\^?\s*[-+]?\d+|[eE][-+]?\d+)?")
 
+# Iter-16e (Day-29): translate Unicode superscript digits + signs to ASCII so
+# golds like "8.48 × 10⁶" or "1.99 × 10⁻³" parse as scientific notation
+# instead of collapsing to the mantissa. 6 rows in the SFT-unseen holdout
+# false-failed for exactly this reason (LD392, LD394, DDT362/382/384/392).
+_SUPERSCRIPT_TRANSLATE = str.maketrans({
+    "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4",
+    "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9",
+    "⁻": "-", "⁺": "+",
+})
+
 
 def parse_number(text: str | float | int | None) -> float | None:
     """Best-effort numeric coercion. Returns ``None`` on failure."""
@@ -43,7 +53,7 @@ def parse_number(text: str | float | int | None) -> float | None:
     if isinstance(text, (int, float)):
         v = float(text)
         return v if math.isfinite(v) else None
-    s = str(text).strip()
+    s = str(text).strip().translate(_SUPERSCRIPT_TRANSLATE)
     if not s:
         return None
     # Try literal first.
