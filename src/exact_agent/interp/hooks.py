@@ -1,13 +1,9 @@
-"""Residual-stream forward hooks (GPU path — SKELETON).
+"""Residual-stream forward hooks (GPU path — IMPLEMENTED).
 
-Captures the residual-stream activation at chosen layers during a forward pass,
-so :func:`exact_agent.interp.features.sae_encode` can turn it into active SAE
-latents. Heavy (torch) imports are deferred.
-
-Hook point must match the SAE's training site: Qwen-Scope SAEs are trained on
-the **residual stream** (``SAE-Res-...``), i.e. the input/output of each decoder
-block, NOT the MLP/attention sublayer output. Register on the block module
-(``model.model.layers[i]``) and read its output hidden state.
+Captures the residual-stream output of chosen decoder blocks during a forward
+pass. Matches the Qwen-Scope SAE training site (``SAE-Res-...`` = residual
+stream), i.e. the output of ``model.model.layers[i]``, NOT a sublayer. torch is
+imported lazily inside the function so this module loads on CPU boxes.
 """
 
 from __future__ import annotations
@@ -17,41 +13,38 @@ from contextlib import contextmanager
 
 @contextmanager
 def capture_residual(model, layers):  # type: ignore[no-untyped-def]
-    """TODO(P1): context manager yielding a dict ``{layer: Tensor[seq, d_model]}``.
+    """Context manager yielding ``{layer: Tensor[batch, seq, d_model]}``.
 
-    Sketch:
+    Run the model once inside the ``with`` block, then read the dict::
 
-        store: dict[int, "Tensor"] = {}
-        handles = []
-        def mk_hook(i):
-            def hook(_module, _inp, out):
-                # out may be a tuple; the hidden state is out[0]
-                hs = out[0] if isinstance(out, tuple) else out
-                store[i] = hs.detach()[0]  # batch=1 -> [seq, d_model]
-            return hook
-        for i in layers:
-            handles.append(model.model.layers[i].register_forward_hook(mk_hook(i)))
-        try:
-            yield store
-        finally:
-            for h in handles:
-                h.remove()
-
-    Run the model once inside the ``with`` block, then read ``store``.
+        with capture_residual(model, [18]) as store:
+            model(**enc)
+        residual = store[18][0]   # batch 0 -> [seq, d_model]
     """
-    raise NotImplementedError(
-        "GPU path — register residual-stream hooks (charter §9 P1)."
-    )
-    yield {}  # pragma: no cover  (keeps this a generator for @contextmanager)
+    store: dict[int, object] = {}
+    handles = []
+
+    def _mk(i: int):
+        def _hook(_module, _inp, out):  # type: ignore[no-untyped-def]
+            hidden = out[0] if isinstance(out, tuple) else out
+            store[i] = hidden.detach()
+        return _hook
+
+    for i in layers:
+        handles.append(model.model.layers[i].register_forward_hook(_mk(i)))
+    try:
+        yield store
+    finally:
+        for h in handles:
+            h.remove()
 
 
-def token_span_for_extraction(tokenizer, prompt: str, question: str):  # type: ignore[no-untyped-def]
-    """TODO(P1): return the token index range over which to aggregate features.
+def question_token_span(tokenizer, prompt: str):  # type: ignore[no-untyped-def]
+    """Token span to aggregate features over. v1 = all prompt tokens.
 
-    For physics we care about the activations while the model reads the
-    *question* (where quantities/units live); for logic, while it reads the
-    premises + question. Restricting aggregation to that span makes RQ1 align
-    features with the actual extraction/translation work, not the boilerplate
-    prompt scaffold. Default fallback: use the whole prompt span.
+    Refinement (charter §8): restrict to the question/premise tokens (drop any
+    fixed scaffold) so RQ1 aligns features with the actual extraction work.
+    Returns ``(start, end)`` half-open indices.
     """
-    raise NotImplementedError("GPU path — compute the question token span (P1).")
+    n = len(tokenizer(prompt)["input_ids"])
+    return 0, n

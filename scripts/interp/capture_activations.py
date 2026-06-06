@@ -6,20 +6,28 @@ Two halves with very different requirements:
 * **Ground truth** (CPU): runs the symbolic solver to derive the concepts each
   sample uses. Needs the physics/logic extras (sympy/pint/z3) but NO GPU.
 * **Activations** (GPU): loads the base model + Qwen-Scope SAE, hooks the
-  residual stream, and decodes top-k features. This is the only part that
-  requires a GPU and is currently a clearly-isolated NotImplementedError
-  (see exact_agent.interp.sae_loader / hooks / features.sae_encode).
+  residual stream, decodes the active TopK features, maps them to concepts.
 
-Run ``--ground-truth-only`` on a CPU box to produce a records file with empty
-``active_*`` fields (useful to validate the data path + ground-truth coverage
-before touching a GPU). The full run fills in the SAE side.
+Run ``--ground-truth-only`` on a CPU box to validate the data path + measure
+ground-truth coverage before touching a GPU. The full run fills ``active_*``.
 
-Usage:
-    python scripts/interp/capture_activations.py \
-        --task physics \
-        --split data/official_v20260515/eval_split/physics_eval_sft_unseen.jsonl \
-        --layer 18 --out outputs/interp/records_physics_layer18.jsonl \
-        [--ground-truth-only] [--labels outputs/interp/feature_labels.json] [--limit N]
+Deps for the GPU run:  pip install torch transformers huggingface_hub
+                       (+ bitsandbytes only if --load-in-4bit)
+
+Examples:
+    # CPU dry-run (coverage check, no model)
+    python scripts/interp/capture_activations.py --task physics \
+      --split data/official_v20260515/eval_split/physics_eval_sft_unseen.jsonl \
+      --layer 18 --out outputs/interp/records_physics_l18.jsonl --ground-truth-only
+
+    # Full run on Colab (dev preset = 2B, fits any GPU)
+    python scripts/interp/capture_activations.py --task physics --preset qwen3.5-2b \
+      --split .../physics_eval_sft_unseen.jsonl --layer 12 \
+      --out outputs/interp/records_physics_l12.jsonl --labels outputs/interp/labels.json
+
+    # Headline run (8B, needs ~24GB; add --load-in-4bit on a 16GB T4)
+    python scripts/interp/capture_activations.py --task logic --preset qwen3-8b \
+      --split .../logic_eval.jsonl --layer 18 --out outputs/interp/records_logic_l18.jsonl
 """
 
 from __future__ import annotations
@@ -35,6 +43,7 @@ from exact_agent.interp import ground_truth as gt  # noqa: E402
 from exact_agent.interp.features import (  # noqa: E402
     concepts_from_features,
     load_label_cache,
+    sae_encode,
 )
 from exact_agent.interp.records import ActivationRecord  # noqa: E402
 
@@ -62,6 +71,45 @@ def _ground_truth(task: str, sid: str, row: dict) -> gt.GroundTruthConcepts:
     )
 
 
+def _build_prompt(task: str, row: dict) -> str:
+    """Plain-text input we capture activations over (Base model, v1).
+
+    Physics: the question. Logic: premises then the question — so the
+    residual stream represents the domain concepts the solver will use.
+    """
+    q = str(row.get("question", ""))
+    if task == "logic":
+        prem = list(row.get("premises-NL") or row.get("premises_NL") or [])
+        if prem:
+            return "\n".join(prem) + "\n" + q
+    return q
+
+
+def _build_cfg(args):  # type: ignore[no-untyped-def]
+    from exact_agent.interp.sae_loader import PRESETS, SAEConfig  # noqa: PLC0415
+
+    if args.preset:
+        base = PRESETS[args.preset]
+        return SAEConfig(
+            base_model=args.model or base.base_model,
+            sae_repo=args.sae_repo or base.sae_repo,
+            top_k=args.top_k or base.top_k,
+            layers=(args.layer,),
+            device=args.device,
+            dtype=args.dtype,
+            load_in_4bit=args.load_in_4bit,
+        )
+    return SAEConfig(
+        base_model=args.model or SAEConfig.base_model,
+        sae_repo=args.sae_repo or SAEConfig.sae_repo,
+        top_k=args.top_k or 50,
+        layers=(args.layer,),
+        device=args.device,
+        dtype=args.dtype,
+        load_in_4bit=args.load_in_4bit,
+    )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--task", choices=["physics", "logic"], required=True)
@@ -72,23 +120,35 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--ground-truth-only", action="store_true",
                     help="skip the GPU activation capture (CPU validation run)")
+    # model selection (charter §10 decision #1) — preset or explicit override
+    ap.add_argument("--preset", choices=["qwen3-8b", "qwen3.5-2b", "qwen3-1.7b"], default=None)
+    ap.add_argument("--model", default=None, help="override base model id")
+    ap.add_argument("--sae-repo", default=None, help="override Qwen-Scope SAE repo id")
+    ap.add_argument("--top-k", type=int, default=None)
+    ap.add_argument("--device", default="cuda")
+    ap.add_argument("--dtype", default="bfloat16")
+    ap.add_argument("--load-in-4bit", action="store_true")
+    ap.add_argument("--max-features", type=int, default=None,
+                    help="cap active features per sample (most-frequent first)")
     args = ap.parse_args()
 
     rows = _load_split(args.split, args.limit)
     labels = load_label_cache(args.labels) if args.labels else {}
 
-    sae_runtime = None
+    model = tok = sae = None
     if not args.ground_truth_only:
-        # ---- GPU path (isolated) -------------------------------------------
+        # ---- GPU path -------------------------------------------------------
+        import torch  # noqa: PLC0415
+
+        from exact_agent.interp.hooks import capture_residual  # noqa: PLC0415
         from exact_agent.interp.sae_loader import (  # noqa: PLC0415
-            SAEConfig,
             load_model_and_tokenizer,
             load_sae,
         )
-        cfg = SAEConfig(layers=(args.layer,))
-        model, tok = load_model_and_tokenizer(cfg)  # raises until implemented
+        cfg = _build_cfg(args)
+        print(f"loading {cfg.base_model} + SAE {cfg.sae_repo} layer {args.layer} ...")
+        model, tok = load_model_and_tokenizer(cfg)
         sae = load_sae(cfg, args.layer)
-        sae_runtime = (cfg, model, tok, sae)
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     n_ok = 0
@@ -100,15 +160,13 @@ def main() -> int:
 
             active_ids: list[int] = []
             active_concepts: list[str] = []
-            if sae_runtime is not None:
-                from exact_agent.interp.features import sae_encode  # noqa: PLC0415
-                from exact_agent.interp.hooks import capture_residual  # noqa: PLC0415
-
-                cfg, model, tok, sae = sae_runtime
-                prompt = str(row.get("question", ""))
-                with capture_residual(model, [args.layer]) as store:
-                    _ = model  # TODO(P1): tokenize+forward(prompt) to fill store
-                active_ids = sae_encode(store[args.layer], sae)
+            if model is not None:
+                prompt = _build_prompt(args.task, row)
+                enc = tok(prompt, return_tensors="pt").to(model.device)
+                with torch.no_grad(), capture_residual(model, [args.layer]) as store:
+                    model(**enc)
+                residual = store[args.layer][0]  # [seq, d_model]
+                active_ids = sae_encode(residual, sae, max_features=args.max_features)
                 active_concepts = sorted(concepts_from_features(active_ids, labels))
 
             rec = ActivationRecord(
@@ -118,6 +176,8 @@ def main() -> int:
                 solver_ok=g.solver_ok, solver_meta={"gt_source": g.source},
             )
             out.write(rec.to_json() + "\n")
+            if (i + 1) % 25 == 0:
+                print(f"  {i + 1}/{len(rows)} ...")
 
     print(f"wrote {len(rows)} records -> {args.out}  (solver_ok on {n_ok}/{len(rows)})")
     if args.ground_truth_only:

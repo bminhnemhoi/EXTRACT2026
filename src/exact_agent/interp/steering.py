@@ -1,20 +1,17 @@
-"""Activation steering h' = h + α·d (GPU path — SKELETON; RQ2 / charter P3).
+"""Activation steering h' = h + α·d (GPU path — IMPLEMENTED; RQ2 / charter P3).
 
-Used to *suppress* off-topic feature directions (e.g. code-switching, literary
-style) during extraction/translation, to test whether task-focusing reduces a
-measurable error class (RQ2). The steering vector ``d`` is a Qwen-Scope SAE
-**decoder** column for the target feature.
+Suppress (α<0) or amplify (α>0) Qwen-Scope SAE feature directions during a
+forward pass to test task-focusing (RQ2). The direction is the SAE decoder
+column for the target feature (:meth:`LoadedSAE.decoder_direction`).
 
-GUARDRAILS baked into the design (charter §5 anti-patterns):
-* α-sweep with a coherence check — steering degrades output monotonically at
-  high α (Rogue Scalpel 2509.22067); never ship an α that hurts coherence.
-* The solver remains the judge — steering only changes what the LLM extracts;
-  it must never let the LLM decide the answer.
-* Discover good (feature, α) OFFLINE, then deploy a STATIC vector (charter §6).
+GUARDRAILS (charter §5): solver stays the judge; α-sweep with a coherence
+check (steering degrades at high α — Rogue Scalpel 2509.22067); discover
+(feature, α) OFFLINE then deploy a STATIC vector.
 """
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 
@@ -22,24 +19,48 @@ from dataclasses import dataclass
 class SteerSpec:
     layer: int
     feature_id: int
-    alpha: float  # negative suppresses the feature, positive amplifies
+    alpha: float  # negative suppresses, positive amplifies
 
 
 def steering_vector(sae, feature_id: int):  # type: ignore[no-untyped-def]
-    """TODO(P3): return the unit decoder direction d for ``feature_id``.
+    """Unit decoder direction d for ``feature_id``."""
+    return sae.decoder_direction(feature_id)
 
-        d = sae.decoder.weight[:, feature_id]   # [d_model]
-        return d / d.norm()
+
+@contextmanager
+def steer(model, specs, sae_by_layer):  # type: ignore[no-untyped-def]
+    """Apply h' = h + Σ α·d at the spec'd layers for the duration of the block.
+
+    ``sae_by_layer``: ``{layer: LoadedSAE}``. Use during generation; pair with
+    an α-sweep driver that re-runs eval per α and logs P1/P2 + a coherence
+    proxy so the sweep can pick the safe band.
     """
-    raise NotImplementedError("GPU path — read SAE decoder column (charter §9 P3).")
+    by_layer: dict[int, list[SteerSpec]] = {}
+    for s in specs:
+        by_layer.setdefault(s.layer, []).append(s)
 
+    handles = []
 
-def make_steering_hook(specs: list[SteerSpec], sae_by_layer):  # type: ignore[no-untyped-def]
-    """TODO(P3): forward hook applying h' = h + Σ α·d at the spec'd layers.
+    def _mk(layer: int):
+        sae = sae_by_layer[layer]
+        vecs = [
+            (s.alpha, steering_vector(sae, s.feature_id).to(sae.device))
+            for s in by_layer[layer]
+        ]
 
-    Apply during generation (inference-time, no weight update). Aggregate
-    multiple specs additively. Pair with an α-sweep driver that re-runs eval
-    per α and records P1/P2 + a coherence proxy (e.g. repetition rate,
-    perplexity, or judge score) so the sweep can pick the safe band.
-    """
-    raise NotImplementedError("GPU path — build the steering hook (charter §9 P3).")
+        def _hook(_module, _inp, out):  # type: ignore[no-untyped-def]
+            hidden = out[0] if isinstance(out, tuple) else out
+            for alpha, d in vecs:
+                hidden = hidden + alpha * d.to(hidden.dtype)
+            if isinstance(out, tuple):
+                return (hidden, *out[1:])
+            return hidden
+        return _hook
+
+    for layer in by_layer:
+        handles.append(model.model.layers[layer].register_forward_hook(_mk(layer)))
+    try:
+        yield
+    finally:
+        for h in handles:
+            h.remove()

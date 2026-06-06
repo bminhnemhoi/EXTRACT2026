@@ -22,9 +22,22 @@ python3 scripts/interp/run_alignment.py --selfcheck
 
 * **Ground truth + metrics (CPU):** the repo's normal env — `uv sync --all-extras`
   (Python 3.11). Needs sympy/pint/z3 for the solver. No GPU.
-* **Activation capture (GPU):** add `torch`, `transformers`, `safetensors`, and
-  the Qwen-Scope SAE loader. A 24 GB GPU suffices for an 8B model in bf16 +
-  one residual-stream SAE.
+* **Activation capture (GPU):** `pip install torch transformers huggingface_hub`
+  (+ `bitsandbytes` only for `--load-in-4bit`). No `sae_lens` — Qwen-Scope SAEs
+  are raw torch dicts (`W_enc/b_enc/W_dec/b_dec`), loaded by `interp/sae_loader.py`.
+
+**Model choice (resolves charter §10 decision #1) + Colab VRAM:**
+
+| Preset | Model | SAE | bf16 VRAM | Use |
+|---|---|---|---|---|
+| `qwen3.5-2b` | Qwen3.5-2B-Base | W32K | ~5 GB | **dev / de-risk** — fits any Colab GPU (T4/L4/A100); eligibility-safe (≤8B) |
+| `qwen3-8b` | Qwen3-8B-Base | W64K (richest) | ~16–18 GB | **headline** — needs L4 24 GB / A100 40 GB; on a 16 GB T4 add `--load-in-4bit` (perturbs the residual stream → SAE less faithful; prefer bf16 on ≥24 GB) |
+| `qwen3-1.7b` | Qwen3-1.7B-Base | W32K | ~4 GB | smallest fallback |
+
+Recommended path: **debug the full pipeline end-to-end on `qwen3.5-2b`, then
+produce headline numbers on `qwen3-8b`.** Both use the **Base** model (the SAE
+is Base-trained); the agent's Instruct-vs-Base question (§2 below) does not
+affect this RQ1 capture, which runs on Base for an exact SAE match.
 
 ## 2. Decisions to lock before running (charter §10)
 
@@ -53,13 +66,20 @@ Produces records with `gold_concepts` filled and `active_*` empty. Check the
 printed `solver_ok on N/total` — that is your usable-sample coverage. Repeat for
 `--task logic --split .../logic_eval.jsonl`.
 
-**3b. Full run (GPU):** drop `--ground-truth-only`. This loads the model + SAE,
-hooks the residual stream at `--layer`, decodes TopK features over the question
-token span, maps them to concepts via `--labels`, and fills `active_*`.
+**3b. Full run (GPU):** drop `--ground-truth-only` and pass `--preset`. This
+loads the model + SAE, hooks the residual stream at `--layer`, decodes the
+active TopK features, maps them to concepts via `--labels`, and fills `active_*`:
 
-Implement the 3 GPU TODOs first (they raise `NotImplementedError` until then):
-`sae_loader.load_model_and_tokenizer` / `load_sae`, `hooks.capture_residual`,
-`features.sae_encode`. Sweep `--layer` over a few mid-stack layers (e.g. 12/18/24).
+```bash
+python scripts/interp/capture_activations.py --task physics --preset qwen3.5-2b \
+  --split data/official_v20260515/eval_split/physics_eval_sft_unseen.jsonl \
+  --layer 12 --out outputs/interp/records_physics_l12.jsonl \
+  --labels outputs/interp/labels.json
+```
+
+The GPU path is **implemented** against the verified Qwen-Scope API
+(`interp/{sae_loader,hooks,features,steering}.py`) — no code-filling needed.
+Sweep `--layer` over a few mid-stack layers (8B: 12/18/24; 2B: 8/12/16).
 
 **Autointerp labels (`--labels`):** a JSON `{feature_id: "natural language"}`.
 Build it once per (model, layer) by feeding each feature's top-activating

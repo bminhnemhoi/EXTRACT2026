@@ -58,20 +58,14 @@ def concepts_from_features(
     return out
 
 
-def sae_encode(residual, sae):  # type: ignore[no-untyped-def]
-    """GPU path: encode a residual-stream tensor with a TopK SAE.
+def sae_encode(residual, sae, *, max_features: int | None = None):  # type: ignore[no-untyped-def]
+    """Active SAE feature ids for a residual span (GPU path).
 
-    Returns the top-k active latent indices (aggregated over tokens) for the
-    given activation. Implemented against the Qwen-Scope SAE module loaded by
-    :func:`exact_agent.interp.sae_loader.load_sae`.
+    Thin delegate to :meth:`exact_agent.interp.sae_loader.LoadedSAE.active_feature_ids`.
 
-    TODO(P1): implement once weights are downloaded. Expected shape contract:
-        residual: Tensor [seq, d_model]  (d_model = 4096 for Qwen3-8B)
-        sae.encode(residual) -> Tensor [seq, d_sae]  (d_sae = 65536, W64K)
-    then take TopK-50 per token and union (or mean-then-topk) across tokens.
+        residual: Tensor [seq, d_model]
+        returns:  list[int]  (active feature ids, frequency-ordered)
+
+    Map the ids to lexical concepts with :func:`concepts_from_features`.
     """
-    raise NotImplementedError(
-        "sae_encode is the GPU path — see sae_loader.load_sae and charter §9 P1. "
-        "Decode pure concept sets with concepts_from_features() once you have "
-        "the active feature ids."
-    )
+    return sae.active_feature_ids(residual, max_features=max_features)
