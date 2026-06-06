@@ -64,6 +64,9 @@ wandb/
 outputs/
 runs/
 
+# Claude Code (personal/local — keep project CLAUDE.md & settings.json shareable)
+.claude/settings.local.json
+
 # Notebook
 .ipynb_checkpoints/
 
