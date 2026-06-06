@@ -29,6 +29,7 @@ class GroundTruthConcepts:
     concepts: list[str]
     solver_ok: bool
     source: str = ""  # e.g. "formula_id+inputs" / "z3_supports+predicates"
+    gold_label: str = ""  # solver class for label-free RQ1-v0: formula_id / answer
 
     def concept_set(self) -> set[str]:
         return set(self.concepts)
@@ -53,6 +54,7 @@ class ActivationRecord:
     gold_concepts: list[str]
     solver_ok: bool
     solver_meta: dict[str, Any] = field(default_factory=dict)
+    gold_label: str = ""  # solver class (formula_id / answer) for RQ1-v0
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), ensure_ascii=False)
@@ -70,6 +72,7 @@ class ActivationRecord:
             gold_concepts=[str(x) for x in data.get("gold_concepts", [])],
             solver_ok=bool(data.get("solver_ok", False)),
             solver_meta=dict(data.get("solver_meta", {})),
+            gold_label=str(data.get("gold_label", "")),
         )
 
 

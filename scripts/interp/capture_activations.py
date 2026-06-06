@@ -174,6 +174,7 @@ def main() -> int:
                 layer=args.layer, active_feature_ids=active_ids,
                 active_concepts=active_concepts, gold_concepts=g.concepts,
                 solver_ok=g.solver_ok, solver_meta={"gt_source": g.source},
+                gold_label=g.gold_label,
             )
             out.write(rec.to_json() + "\n")
             if (i + 1) % 25 == 0:

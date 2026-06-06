@@ -88,6 +88,34 @@ Unlabeled features contribute nothing to alignment (by design — honest).
 
 ## 4. P2 — alignment (RQ1)
 
+**4.0 RQ1-v0 (label-free — run this FIRST, no autointerp needed):** uses only
+the captured `active_feature_ids` + the solver `gold_label` (physics: formula_id;
+logic: answer). Fastest honest read of whether features carry the solver class.
+
+```bash
+python scripts/interp/run_discriminance.py \
+  --records outputs/interp/records_physics_l12.jsonl \
+  --out outputs/interp/discriminance_physics_l12
+```
+Reports same-class vs different-class feature overlap, a separation AUC
+(0.5 = no signal), and leave-one-out 1-NN accuracy vs majority. AUC ≫ 0.5 and
+1-NN lift > 0 ⇒ go; ≈ 0.5 ⇒ honest negative (charter §8).
+
+**4.1 Labels (prerequisite for the lexical alignment below):** the captured
+`active_concepts` are empty until features are labeled. Build the cache with a
+local open labeler (no external API):
+
+```bash
+python scripts/interp/build_labels.py --preset qwen3.5-2b --task physics \
+  --split data/official_v20260515/eval_split/physics_eval_sft_unseen.jsonl \
+  --records outputs/interp/records_physics_l12.jsonl --layer 12 \
+  --out outputs/interp/labels.json --max-features 400   # --labeler-model to override
+```
+Then RE-RUN `capture_activations.py` with `--labels outputs/interp/labels.json`
+so `active_concepts` is populated, and proceed:
+
+**4.2 Lexical alignment (RQ1):**
+
 ```bash
 python scripts/interp/run_alignment.py \
   --records outputs/interp/records_physics_layer18.jsonl \

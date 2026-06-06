@@ -109,7 +109,8 @@ def ground_truth_for_physics(sample_id: str, question: str) -> GroundTruthConcep
         topic=getattr(formula, "topic", None),
     )
     return GroundTruthConcepts(
-        sample_id, "physics", sorted(concepts), result.success, "formula+aliases+topic"
+        sample_id, "physics", sorted(concepts), result.success,
+        "formula+aliases+topic", gold_label=result.formula_id,
     )
 
 
@@ -144,4 +145,7 @@ def ground_truth_for_logic(
         supporting_premise_texts=used_texts, fol_strings=fol_strings
     )
     ok = bool(resp.answer) and resp.answer.lower() not in {"unknown", "uncertain", ""}
-    return GroundTruthConcepts(sample_id, "logic", sorted(concepts), ok, "supports+predicates")
+    return GroundTruthConcepts(
+        sample_id, "logic", sorted(concepts), ok, "supports+predicates",
+        gold_label=str(resp.answer or ""),
+    )

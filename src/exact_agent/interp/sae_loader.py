@@ -118,6 +118,20 @@ class LoadedSAE:
         d = self.W_dec[:, int(feature_id)]
         return d / d.norm()
 
+    def pre_acts_subset(self, residual, feature_ids):  # type: ignore[no-untyped-def]
+        """Pre-activations for a SUBSET of features (autointerp efficiency).
+
+        ``residual`` [seq, d_model], ``feature_ids`` list[int] ->
+        Tensor [seq, len(feature_ids)] = residual @ W_enc[ids].T + b_enc[ids].
+        Avoids materializing the full d_sae dimension when labeling a few
+        hundred target features.
+        """
+        import torch  # noqa: PLC0415
+
+        ids = torch.as_tensor(list(feature_ids), device=self.W_enc.device, dtype=torch.long)
+        x = residual.to(self.W_enc.dtype)
+        return x @ self.W_enc[ids].T + self.b_enc[ids]
+
 
 def load_model_and_tokenizer(cfg: SAEConfig):  # type: ignore[no-untyped-def]
     """Load the base model + tokenizer via transformers (eval mode)."""
