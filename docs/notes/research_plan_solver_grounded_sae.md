@@ -116,7 +116,7 @@ JSON: answer/explanation/cot/premises/fol/confidence
 
 ## 10. Decision points cần bạn chốt (đặt default — không chặn việc viết)
 
-1. **Model:** *default* Qwen3-8B (giàu SAE, nâng trích/dịch). Đổi sang **Qwen3.5-2B** nếu luật đếm *tổng* tham số nghiêm. → **Bạn chốt sau khi hỏi convention BTC.**
+1. **Model:** ✅ **CHỐT 2026-06-06 — giữ Qwen-Scope / Qwen3-8B-Base** (đã implement + verify; dev trên Qwen3.5-2B-Base, headline Qwen3-8B-Base). Đã cân nhắc **Gemma Scope 2 / Gemma 3 4B-it** (instruct-SAE + transcoder/cross-layer = circuit-tracing + Matryoshka SAE + sae_lens, 4B ≤8B sạch) — mạnh hơn về *giá trị* nhưng tốn re-tool (đổi base + loader). **Để dành làm hướng nâng cấp / cross-suite comparison** nếu RQ1 trên Qwen yếu hoặc muốn provenance cấp-mạch. Vẫn nên hỏi BTC convention đếm tham số (8.2B biên); nếu nghiêm → submit bằng Qwen3.5-2B.
 2. **Base vs Instruct cho phân tích:** *default* agent chạy Instruct + lượt Base riêng để lấy activation (SAE exact). Phương án rẻ hơn: chấp nhận SAE-Base-trên-Instruct (xấp xỉ, phải nói rõ).
 3. **Đích nộp:** *default* special-session XAII của chính EXACT (rất khớp) + bản nộp cuộc thi. (Top-conference: không đặt kỳ vọng.)
 
